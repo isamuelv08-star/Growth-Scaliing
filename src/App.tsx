@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ClientBoard } from './types';
 import { DEFAULT_CLIENTS } from './mockData';
 import { 
@@ -114,6 +114,7 @@ export default function App() {
   // Supabase connection and synchronization states
   const [isUsingSupabase, setIsUsingSupabase] = useState(false);
   const [supabaseLoading, setSupabaseLoading] = useState(false);
+  const lastSyncedJsonRef = useRef<string>('');
 
   // Load database content from Supabase
   const loadSupabaseData = async () => {
@@ -129,6 +130,7 @@ export default function App() {
       const dbBoards = await fetchSupabaseBoards();
       if (dbBoards.length > 0) {
         setClients(dbBoards);
+        lastSyncedJsonRef.current = JSON.stringify(dbBoards);
       } else {
         // If Supabase database is brand new and empty, seed it with current clients
         console.log("Supabase database empty, seeding initial clients...");
@@ -138,6 +140,7 @@ export default function App() {
         const reFetched = await fetchSupabaseBoards();
         if (reFetched.length > 0) {
           setClients(reFetched);
+          lastSyncedJsonRef.current = JSON.stringify(reFetched);
         }
       }
     } catch (err) {
@@ -166,15 +169,62 @@ export default function App() {
     setIsUsingSupabase(!!client);
   };
 
-  // Sync state to local storage when changed (only if not using Supabase to avoid overwriting cache with transient loads)
+  // Sync state to local storage and Supabase with debouncing to avoid race conditions/lockups
   useEffect(() => {
-    if (!isUsingSupabase) {
-      try {
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(clients));
-      } catch (e) {
-        console.error("Fallo al guardar en caché local", e);
-      }
+    // 1. Always sync to local storage immediately as a robust, offline-first backup
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(clients));
+    } catch (e) {
+      console.error("Fallo al guardar en caché local", e);
     }
+
+    if (!isUsingSupabase) return;
+
+    // 2. If using Supabase, debounce saving to prevent race conditions during typing
+    const currentJson = JSON.stringify(clients);
+    if (currentJson === lastSyncedJsonRef.current) {
+      return;
+    }
+
+    const handler = setTimeout(async () => {
+      const client = getSupabaseClient();
+      if (!client) return;
+
+      try {
+        let parsedLastSynced: ClientBoard[] = [];
+        try {
+          parsedLastSynced = JSON.parse(lastSyncedJsonRef.current || '[]');
+        } catch (_) {}
+
+        // Handle deletions
+        if (Array.isArray(parsedLastSynced) && parsedLastSynced.length > 0) {
+          const deleted = parsedLastSynced.filter(oldBoard => !clients.some(newBoard => newBoard.id === oldBoard.id));
+          for (const b of deleted) {
+            await deleteSupabaseBoard(b.id);
+            console.log("Socio eliminado de Supabase (debounced):", b.companyName);
+          }
+        }
+
+        // Handle additions / modifications
+        const changed = clients.filter(newBoard => {
+          const oldBoard = parsedLastSynced.find(o => o.id === newBoard.id);
+          if (!oldBoard) return true; // New board
+          return JSON.stringify(oldBoard) !== JSON.stringify(newBoard);
+        });
+
+        for (const b of changed) {
+          await saveSupabaseBoard(b);
+          console.log("Socio guardado en Supabase (debounced):", b.companyName);
+        }
+
+        // Update synced state reference
+        lastSyncedJsonRef.current = currentJson;
+      } catch (err) {
+        console.error("Fallo en sincronización debounced con Supabase", err);
+      }
+    }, 1500); // 1.5 second debounce for keyboard inputs
+
+    return () => clearTimeout(handler);
   }, [clients, isUsingSupabase]);
 
   // Sync config & Theme to DOM
@@ -275,25 +325,46 @@ export default function App() {
   }, [clients, isAdminAuthenticated, isClientViewOnly]);
 
   // Update client database callback
-  const handleUpdateClientsList = async (updated: ClientBoard[]) => {
+  const handleUpdateClientsList = async (updated: ClientBoard[], forceSync: boolean = false) => {
     setClients(updated);
 
-    // Synchronize with Supabase asynchronously if live connection is active
-    const client = getSupabaseClient();
-    if (client) {
+    // Save to local storage
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+    } catch (e) {
+      console.error("Fallo al guardar en caché local", e);
+    }
+
+    if (forceSync) {
+      const client = getSupabaseClient();
+      if (!client) return;
       try {
-        // Detect and handle deletions
-        const deletedBoards = clients.filter(c => !updated.some(u => u.id === c.id));
-        for (const board of deletedBoards) {
-          await deleteSupabaseBoard(board.id);
+        let parsedLastSynced: ClientBoard[] = [];
+        try {
+          parsedLastSynced = JSON.parse(lastSyncedJsonRef.current || '[]');
+        } catch (_) {}
+
+        const deleted = parsedLastSynced.filter(oldBoard => !updated.some(newBoard => newBoard.id === oldBoard.id));
+        for (const b of deleted) {
+          await deleteSupabaseBoard(b.id);
+          console.log("Socio eliminado de Supabase (forzado):", b.companyName);
         }
 
-        // Detect and handle additions / updates
-        for (const board of updated) {
-          await saveSupabaseBoard(board);
+        const changed = updated.filter(newBoard => {
+          const oldBoard = parsedLastSynced.find(o => o.id === newBoard.id);
+          if (!oldBoard) return true;
+          return JSON.stringify(oldBoard) !== JSON.stringify(newBoard);
+        });
+
+        for (const b of changed) {
+          await saveSupabaseBoard(b);
+          console.log("Socio guardado en Supabase (forzado):", b.companyName);
         }
+
+        lastSyncedJsonRef.current = JSON.stringify(updated);
+        console.log("Sincronización forzada con Supabase exitosa.");
       } catch (err) {
-        console.error("Fallo al sincronizar actualizaciones con Supabase", err);
+        console.error("Fallo al realizar sincronización forzada con Supabase", err);
       }
     }
   };

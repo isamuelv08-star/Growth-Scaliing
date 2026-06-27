@@ -89,7 +89,7 @@ const SCALING_PHRASES = [
 
 interface AdminPanelProps {
   clients: ClientBoard[];
-  onUpdateClients: (updatedClients: ClientBoard[]) => void;
+  onUpdateClients: (updatedClients: ClientBoard[], forceSync?: boolean) => void;
   onSelectClientForView: (clientId: string) => void;
   onBackToClientView: () => void;
   config: AppConfig;
@@ -455,7 +455,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     };
 
     const nextList = [...clients, newBoard];
-    onUpdateClients(nextList);
+    onUpdateClients(nextList, true);
     setSelectedClientId(newBoard.id);
     
     // Reset form
@@ -473,7 +473,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
     if (confirm("¿Estás seguro de que deseas eliminar este socio de forma permanente?")) {
       const remaining = clients.filter(c => c.id !== id);
-      onUpdateClients(remaining);
+      onUpdateClients(remaining, true);
       if (selectedClientId === id) {
         setSelectedClientId(remaining[0].id);
       }
@@ -1720,7 +1720,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                   <button
                     onClick={() => {
-                      onUpdateClients([...clients]);
+                      onUpdateClients([...clients], true);
                       setSaveSuccess(true);
                       setTimeout(() => setSaveSuccess(false), 3500);
                     }}

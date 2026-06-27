@@ -35,7 +35,8 @@ import {
   Layout,
   Layers,
   Award,
-  BookOpen
+  BookOpen,
+  LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -100,8 +101,9 @@ export default function App() {
   });
 
   // Navigation states: 'welcome' | 'client' | 'admin'
-  const [viewMode, setViewMode] = useState<'welcome' | 'client' | 'admin'>('welcome');
+  const [viewMode, setViewMode] = useState<'welcome' | 'client' | 'admin'>('admin');
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+  const [isClientViewOnly, setIsClientViewOnly] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<string>('');
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   
@@ -192,6 +194,8 @@ export default function App() {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
+      const isLogged = isAdminAuthenticated || isClientViewOnly;
+
       if (hash && hash.startsWith('#cliente-data/')) {
         const base64Data = hash.substring('#cliente-data/'.length);
         try {
@@ -207,7 +211,11 @@ export default function App() {
               }
             });
             setSelectedClientId(clientObj.id);
-            setViewMode('client');
+            if (isLogged) {
+              setViewMode('client');
+            } else {
+              setViewMode('admin');
+            }
           }
         } catch (e) {
           console.error("Fallo al decodificar cliente desde URL", e);
@@ -231,7 +239,11 @@ export default function App() {
                 }
               });
               setSelectedClientId(clientObj.id);
-              setViewMode('client');
+              if (isLogged) {
+                setViewMode('client');
+              } else {
+                setViewMode('admin');
+              }
             }
           } catch (e) {
             console.error("Fallo al decodificar cliente comprimido desde URL", e);
@@ -240,10 +252,17 @@ export default function App() {
           const match = clients.find(c => c.id === content);
           if (match) {
             setSelectedClientId(match.id);
-            setViewMode('client');
+            if (isLogged) {
+              setViewMode('client');
+            } else {
+              setViewMode('admin');
+            }
           }
         }
       } else if (hash === '#admin') {
+        setViewMode('admin');
+      } else {
+        // Default startup
         setViewMode('admin');
       }
     };
@@ -253,7 +272,7 @@ export default function App() {
 
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [clients]);
+  }, [clients, isAdminAuthenticated, isClientViewOnly]);
 
   // Update client database callback
   const handleUpdateClientsList = async (updated: ClientBoard[]) => {
@@ -344,89 +363,115 @@ export default function App() {
 
           <div className="flex items-center gap-3" id="header-right-actions">
             
-            {/* Beautiful Client Selector Dropdown on Header */}
-            {viewMode === 'client' && clients.length > 0 && (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setIsClientDropdownOpen(!isClientDropdownOpen)}
-                  className="bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-bold px-4 py-2 rounded-full inline-flex items-center gap-2 transition-all cursor-pointer"
-                  id="header-client-selector-trigger"
-                >
+            {/* If client is logged in with unique key, show simple branded info and Logout button */}
+            {isClientViewOnly ? (
+              <>
+                <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-full select-none">
                   <Building2 className="w-3.5 h-3.5 text-violet-600" />
                   <span className="max-w-28 sm:max-w-44 truncate">{currentClient.companyName}</span>
-                  <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${isClientDropdownOpen ? 'rotate-180' : ''}`} />
+                </div>
+                
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsClientViewOnly(false);
+                    setViewMode('admin');
+                    setIsAdminAuthenticated(false);
+                    window.location.hash = '';
+                  }}
+                  className="bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold px-4 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Cerrar Sesión</span>
                 </button>
-
-                {isClientDropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-64 bg-white border border-slate-200 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-                    <p className="px-4 py-1.5 font-mono text-[9px] text-violet-600 font-extrabold uppercase tracking-widest">CAMBIAR SOCIO DEMO</p>
-                    {clients.map(c => (
-                      <button
-                        key={c.id}
-                        onClick={() => handleSelectClient(c.id)}
-                        className={`w-full text-left font-sans text-xs px-4 py-2.5 hover:bg-slate-50 transition-colors block ${
-                          c.id === selectedClientId ? 'text-violet-600 font-black bg-violet-50/80' : 'text-slate-750'
-                        }`}
-                      >
-                        <div className="flex justify-between items-center">
-                          <span className="truncate pr-2">{c.companyName}</span>
-                          <span className="text-[9px] font-mono font-semibold text-slate-500 shrink-0">Mes {c.currentMonth}/6</span>
-                        </div>
-                      </button>
-                    ))}
-                    <hr className="border-slate-100 my-1.5" />
+              </>
+            ) : (
+              <>
+                {/* Beautiful Client Selector Dropdown on Header */}
+                {viewMode === 'client' && clients.length > 0 && (
+                  <div className="relative">
                     <button
-                      onClick={handleAdminModeLink}
-                      className="w-full text-left font-bold text-violet-600 text-xs px-4 py-2 hover:bg-slate-50 block flex items-center gap-2"
+                      type="button"
+                      onClick={() => setIsClientDropdownOpen(!isClientDropdownOpen)}
+                      className="bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-bold px-4 py-2 rounded-full inline-flex items-center gap-2 transition-all cursor-pointer"
+                      id="header-client-selector-trigger"
                     >
-                      <Sliders className="w-3.5 h-3.5" />
-                      <span>Ir al Panel Consultor</span>
+                      <Building2 className="w-3.5 h-3.5 text-violet-600" />
+                      <span className="max-w-28 sm:max-w-44 truncate">{currentClient.companyName}</span>
+                      <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${isClientDropdownOpen ? 'rotate-180' : ''}`} />
                     </button>
+
+                    {isClientDropdownOpen && (
+                      <div className="absolute right-0 mt-2 w-64 bg-white border border-slate-200 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                        <p className="px-4 py-1.5 font-mono text-[9px] text-violet-600 font-extrabold uppercase tracking-widest">CAMBIAR SOCIO DEMO</p>
+                        {clients.map(c => (
+                          <button
+                            key={c.id}
+                            onClick={() => handleSelectClient(c.id)}
+                            className={`w-full text-left font-sans text-xs px-4 py-2.5 hover:bg-slate-50 transition-colors block ${
+                              c.id === selectedClientId ? 'text-violet-600 font-black bg-violet-50/80' : 'text-slate-750'
+                            }`}
+                          >
+                            <div className="flex justify-between items-center">
+                              <span className="truncate pr-2">{c.companyName}</span>
+                              <span className="text-[9px] font-mono font-semibold text-slate-500 shrink-0">Mes {c.currentMonth}/6</span>
+                            </div>
+                          </button>
+                        ))}
+                        <hr className="border-slate-100 my-1.5" />
+                        <button
+                          onClick={handleAdminModeLink}
+                          className="w-full text-left font-bold text-violet-600 text-xs px-4 py-2 hover:bg-slate-50 block flex items-center gap-2"
+                        >
+                          <Sliders className="w-3.5 h-3.5" />
+                          <span>Ir al Panel Consultor</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
-            )}
 
-            {/* Quick action to toggle mode directly on top */}
-            <div className="hidden md:flex bg-slate-100/85 p-1 rounded-xl border border-slate-200 items-center">
-              <button
-                onClick={() => {
-                  if (clients.length > 0) {
-                    if (!selectedClientId) handleSelectClient(clients[0].id);
-                    setViewMode('client');
-                  } else {
-                    setViewMode('welcome');
-                  }
-                }}
-                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                  viewMode === 'client' ? 'bg-white text-slate-900 border border-slate-200/60 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <UserCheck className="w-3.5 h-3.5 text-violet-600" />
-                <span>Modo Cliente</span>
-              </button>
-              <button
-                onClick={handleAdminModeLink}
-                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                  viewMode === 'admin' ? 'bg-white text-slate-900 border border-slate-200/60 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <Sliders className="w-3.5 h-3.5 text-violet-600" />
-                <span>Modo Consultor</span>
-              </button>
-            </div>
+                {/* Quick action to toggle mode directly on top */}
+                <div className="hidden md:flex bg-slate-100/85 p-1 rounded-xl border border-slate-200 items-center">
+                  <button
+                    onClick={() => {
+                      if (clients.length > 0) {
+                        if (!selectedClientId) handleSelectClient(clients[0].id);
+                        setViewMode('client');
+                      } else {
+                        setViewMode('welcome');
+                      }
+                    }}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                      viewMode === 'client' ? 'bg-white text-slate-900 border border-slate-200/60 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <UserCheck className="w-3.5 h-3.5 text-violet-600" />
+                    <span>Modo Cliente</span>
+                  </button>
+                  <button
+                    onClick={handleAdminModeLink}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                      viewMode === 'admin' ? 'bg-white text-slate-900 border border-slate-200/60 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <Sliders className="w-3.5 h-3.5 text-violet-600" />
+                    <span>Modo Consultor</span>
+                  </button>
+                </div>
 
-            {/* Config Button (Panel admin link) fallback */}
-            {viewMode === 'welcome' && (
-              <button
-                onClick={handleAdminModeLink}
-                className="text-slate-500 hover:text-violet-600 p-2 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-300 hover:bg-slate-100 transition-all cursor-pointer"
-                id="btn-nav-admin"
-                title="Consola de Consultor"
-              >
-                <Settings className="w-4 h-4" />
-              </button>
+                {/* Config Button (Panel admin link) fallback */}
+                {viewMode === 'welcome' && (
+                  <button
+                    onClick={handleAdminModeLink}
+                    className="text-slate-500 hover:text-violet-600 p-2 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-300 hover:bg-slate-100 transition-all cursor-pointer"
+                    id="btn-nav-admin"
+                    title="Consola de Consultor"
+                  >
+                    <Settings className="w-4 h-4" />
+                  </button>
+                )}
+              </>
             )}
 
           </div>
@@ -452,60 +497,62 @@ export default function App() {
                 <div className="p-6 space-y-6 w-[330px]">
                   
                   {/* Sliding Toggle switch ("un boton mas bonito") */}
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-violet-600 font-mono leading-none flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-violet-500" />
-                      <span>Panel De Control</span>
-                    </label>
-                    <div className="relative bg-slate-150 border border-slate-200/80 rounded-2xl p-1 flex w-full">
-                      <button 
-                        onClick={() => {
-                          if (clients.length > 0) {
-                            if (!selectedClientId) setSelectedClientId(clients[0].id);
-                            setViewMode('client');
-                            window.location.hash = `#cliente/${selectedClientId || clients[0].id}`;
-                          } else {
-                            setViewMode('welcome');
-                          }
-                        }}
-                        className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all relative ${
-                          viewMode === 'client' 
-                            ? 'text-white' 
-                            : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                      >
-                        {viewMode === 'client' && (
-                          <motion.div 
-                            layoutId="sidebar-view-pill" 
-                            className="absolute inset-0 bg-violet-600 rounded-xl z-0" 
-                          />
-                        )}
-                        <span className="relative z-10 flex items-center gap-1.5">
-                          <UserCheck className="w-3.5 h-3.5" />
-                          Vista Cliente
-                        </span>
-                      </button>
-                      <button 
-                        onClick={handleAdminModeLink}
-                        className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all relative ${
-                          viewMode === 'admin' 
-                            ? 'text-white' 
-                            : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                      >
-                        {viewMode === 'admin' && (
-                          <motion.div 
-                            layoutId="sidebar-view-pill" 
-                            className="absolute inset-0 bg-violet-600 rounded-xl z-0" 
-                          />
-                        )}
-                        <span className="relative z-10 flex items-center gap-1.5">
-                          <Sliders className="w-3.5 h-3.5" />
-                          Consultor
-                        </span>
-                      </button>
+                  {!isClientViewOnly && (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-violet-600 font-mono leading-none flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-violet-500" />
+                        <span>Panel De Control</span>
+                      </label>
+                      <div className="relative bg-slate-150 border border-slate-200/80 rounded-2xl p-1 flex w-full">
+                        <button 
+                          onClick={() => {
+                            if (clients.length > 0) {
+                              if (!selectedClientId) setSelectedClientId(clients[0].id);
+                              setViewMode('client');
+                              window.location.hash = `#cliente/${selectedClientId || clients[0].id}`;
+                            } else {
+                              setViewMode('welcome');
+                            }
+                          }}
+                          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all relative ${
+                            viewMode === 'client' 
+                              ? 'text-white' 
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          {viewMode === 'client' && (
+                            <motion.div 
+                              layoutId="sidebar-view-pill" 
+                              className="absolute inset-0 bg-violet-600 rounded-xl z-0" 
+                            />
+                          )}
+                          <span className="relative z-10 flex items-center gap-1.5">
+                            <UserCheck className="w-3.5 h-3.5" />
+                            Vista Cliente
+                          </span>
+                        </button>
+                        <button 
+                          onClick={handleAdminModeLink}
+                          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all relative ${
+                            viewMode === 'admin' 
+                              ? 'text-white' 
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          {viewMode === 'admin' && (
+                            <motion.div 
+                              layoutId="sidebar-view-pill" 
+                              className="absolute inset-0 bg-violet-600 rounded-xl z-0" 
+                            />
+                          )}
+                          <span className="relative z-10 flex items-center gap-1.5">
+                            <Sliders className="w-3.5 h-3.5" />
+                            Consultor
+                          </span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Account detail ("Nombre de la empresa configuración etc.") */}
                   <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3 shadow-xs relative overflow-hidden">
@@ -823,6 +870,13 @@ export default function App() {
                   onUpdateConfig={setConfig}
                   onSupabaseConfigChange={handleSupabaseConfigChange}
                   onAuthChange={setIsAdminAuthenticated}
+                  onClientLogin={(clientId) => {
+                    setSelectedClientId(clientId);
+                    setIsClientViewOnly(true);
+                    setIsAdminAuthenticated(false);
+                    setViewMode('client');
+                    window.location.hash = `#cliente/${clientId}`;
+                  }}
                   onBackToClientView={() => {
                     if (clients.length > 0) {
                       if (!selectedClientId) {

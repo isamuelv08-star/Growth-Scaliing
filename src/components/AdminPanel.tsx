@@ -79,6 +79,14 @@ interface AppConfig {
   adminEmail: string;
 }
 
+const SCALING_PHRASES = [
+  "«El verdadero crecimiento no es solo facturar más, es construir un sistema que pueda multiplicarse sin tu presencia física.»",
+  "«Para duplicar el rendimiento, primero simplifica la estructura. El desorden es el peor enemigo del escalamiento.»",
+  "«No persigas ventas efímeras; optimiza el Valor de Vida del Cliente (LTV) y el Costo de Adquisición (CAC) para escalar de manera sostenible.»",
+  "«La pauta publicitaria atrae tráfico, pero la estrategia de retención y la oferta irresistible construyen imperios comerciales.»",
+  "«Escalar requiere delegar con sistemas y monitorear con métricas duras en tiempo real.»"
+];
+
 interface AdminPanelProps {
   clients: ClientBoard[];
   onUpdateClients: (updatedClients: ClientBoard[]) => void;
@@ -88,6 +96,7 @@ interface AdminPanelProps {
   onUpdateConfig: (updatedConfig: AppConfig) => void;
   onSupabaseConfigChange?: () => void;
   onAuthChange?: (authenticated: boolean) => void;
+  onClientLogin?: (clientId: string) => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -98,7 +107,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   config,
   onUpdateConfig,
   onSupabaseConfigChange,
-  onAuthChange
+  onAuthChange,
+  onClientLogin
 }) => {
   // Supabase states first so other hooks can reference isSupaConnected
   const [supabaseUrl, setSupabaseUrl] = useState(() => getSupabaseCredentials()?.url || '');
@@ -114,6 +124,41 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [authError, setAuthError] = useState('');
   const [isSignUpMode, setIsSignUpMode] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
+
+  const [loginTab, setLoginTab] = useState<'client' | 'admin'>('admin');
+  const [accessKeyInput, setAccessKeyInput] = useState('');
+  const [targetClient, setTargetClient] = useState<ClientBoard | null>(null);
+  const [currentPhraseIndex, setCurrentPhraseIndex] = useState(0);
+
+  // Automatically rotate business scaling phrases
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentPhraseIndex((prev) => (prev + 1) % SCALING_PHRASES.length);
+    }, 6000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Sync target client from URL Hash to display custom greeting on login screen
+  React.useEffect(() => {
+    const handleHashCheck = () => {
+      const hash = window.location.hash;
+      if (hash && hash.startsWith('#cliente/')) {
+        const id = hash.substring('#cliente/'.length);
+        const matched = clients.find(c => c.id === id);
+        if (matched) {
+          setTargetClient(matched);
+          setLoginTab('client');
+        } else {
+          setTargetClient(null);
+        }
+      } else {
+        setTargetClient(null);
+      }
+    };
+    handleHashCheck();
+    window.addEventListener('hashchange', handleHashCheck);
+    return () => window.removeEventListener('hashchange', handleHashCheck);
+  }, [clients]);
 
   // Notify parent on authentication state change
   React.useEffect(() => {
@@ -253,66 +298,71 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const selectedClient = clients.find(c => c.id === selectedClientId) || clients[0];
 
-  // Email and Password Login / Signup handler
+  // Email and Password Login for Admin / Access Key Login for Clients
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
     setAuthLoading(true);
 
-    const email = emailInput.trim();
-    const password = passwordInput;
-
-    if (!email || !password) {
-      setAuthError('Por favor ingresa tanto el correo como la contraseña.');
-      setAuthLoading(false);
-      return;
-    }
-
     try {
-      if (isSupaConnected) {
-        if (isSignUpMode) {
-          // Register a new user in Supabase Auth
-          const data = await supabaseSignUp(email, password);
-          if (data?.user) {
-            setAuthError('¡Usuario registrado con éxito! Verifica tu correo (si tienes habilitada la confirmación) o inicia sesión.');
-            setIsSignUpMode(false);
-          } else {
-            throw new Error("No se pudo registrar el usuario. Revisa las directivas de Supabase.");
-          }
-        } else {
-          // Sign In with Supabase Auth
-          const data = await supabaseSignIn(email, password);
-          if (data?.user || data?.session) {
-            setIsAuthenticated(true);
-            setAuthError('');
-          } else {
-            throw new Error("Credenciales inválidas en Supabase.");
-          }
+      if (loginTab === 'admin') {
+        const email = emailInput.trim().toLowerCase();
+        const password = passwordInput;
+
+        if (!email || !password) {
+          setAuthError('Por favor ingresa tanto tu correo como tu contraseña.');
+          setAuthLoading(false);
+          return;
         }
-      } else {
-        // Local Credentials Authentication
-        const isDefaultCreds = (email === 'admin@partner.com' && password === 'admin');
-        const isConfigCreds = (email === config.adminEmail && password === config.accessPassword);
-        const isLegacyCreds = (email === 'consultor@partner.com' && password === config.accessPassword);
-        
+
+        // Admin credentials matching:
+        // 1. Current config credentials
+        const isConfigCreds = (email === config.adminEmail.trim().toLowerCase() && password === config.accessPassword);
+        // 2. Fallbacks
+        const isDefaultCreds = (email === 'admin@partner.com' && password === 'admin') || (email === 'samuel@partner.com' && password === 'growth2026');
+        const isLegacyCreds = (email === 'consultor@partner.com' && password === 'growth2026') || (email === 'consultor@partner.com' && password === config.accessPassword);
+
         if (isConfigCreds || isDefaultCreds || isLegacyCreds) {
           setIsAuthenticated(true);
           setAuthError('');
         } else {
-          setAuthError('Credenciales incorrectas. Para modo local, usa el correo del consultor y tu clave de acceso.');
+          setAuthError('Credenciales incorrectas para el administrador. Por favor verifique el correo y la contraseña.');
         }
+      } else {
+        const inputKey = accessKeyInput.trim();
+
+        if (!inputKey) {
+          setAuthError('Por favor digite su clave única de acceso.');
+          setAuthLoading(false);
+          return;
+        }
+
+        // Check if the key matches any client's access key
+        const matchedClient = clients.find(c => c.accessKey && c.accessKey.trim().toLowerCase() === inputKey.toLowerCase());
+        
+        if (matchedClient) {
+          setAuthError('');
+          setAuthLoading(false);
+          if (onClientLogin) {
+            onClientLogin(matchedClient.id);
+          }
+          return;
+        }
+
+        // Support using admin master password in access key field too (as a helper)
+        const isAdminMasterPassword = (inputKey === config.accessPassword || inputKey === 'growth2026' || inputKey === 'admin');
+        if (isAdminMasterPassword) {
+          setIsAuthenticated(true);
+          setAuthError('');
+          setAuthLoading(false);
+          return;
+        }
+
+        setAuthError('La clave única de acceso introducida es incorrecta o no pertenece a ningún socio registrado.');
       }
     } catch (err: any) {
       console.error("Authentication error", err);
-      let errMsg = err.message || 'Error de autenticación desconocido.';
-      if (errMsg.includes('Invalid login credentials')) {
-        errMsg = 'Credenciales de acceso inválidas. Revisa tu correo y contraseña, o regístrate si es una base de datos nueva.';
-      } else if (errMsg.includes('User already registered')) {
-        errMsg = 'El usuario ya se encuentra registrado en este proyecto de Supabase.';
-      } else if (errMsg.includes('Email not confirmed')) {
-        errMsg = 'Por favor confirma tu correo electrónico en Supabase o deshabilita "Confirm Email" en Supabase Auth Providers.';
-      }
-      setAuthError(errMsg);
+      setAuthError('Error de autenticación desconocido.');
     } finally {
       setAuthLoading(false);
     }
@@ -333,6 +383,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       .replace(/[^a-z0-9 ]/g, '')
       .replace(/\s+/g, '-');
 
+    const prefix = newCompany.substring(0, 3).toUpperCase().replace(/[^A-Z]/g, 'GS');
+    const randNum = Math.floor(1000 + Math.random() * 9000);
+    const newAccessKey = `${prefix}-${randNum}`;
+
     const newBoard: ClientBoard = {
       id: newSlug || `cliente-${Date.now()}`,
       companyName: newCompany,
@@ -341,6 +395,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       industry: newIndustry,
       currentMonth: 1,
       statusMessage: "¡Bienvenido a tu ciclo de crecimiento de 6 meses! Ya iniciamos la instalación de tu sistema de ventas/marketing. Aquí verás cada avance de nuestras pautas y flujos.",
+      accessKey: newAccessKey,
       kpis: {
         ventas: {
           label: "Ventas Atribuibles",
@@ -702,118 +757,228 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen w-full bg-slate-50 dark:bg-zinc-950 flex flex-col md:flex-row" id="admin-login-view">
-        {/* Left Side: Growth Presentation Banner */}
-        <div className="hidden md:flex md:w-1/2 bg-slate-900 dark:bg-black text-white p-12 flex-col justify-between relative overflow-hidden select-none border-r border-slate-200 dark:border-zinc-900">
+      <div className="min-h-screen w-full bg-slate-50 flex flex-col md:flex-row" id="admin-login-view">
+        {/* Left Side: Growth Presentation Banner (No Image, clean typography & alternating phrases) */}
+        <div className="hidden md:flex md:w-1/2 bg-slate-900 text-white p-12 flex-col justify-between relative overflow-hidden select-none border-r border-slate-200">
           {/* Ambient light effects */}
           <div className="absolute top-[-20%] left-[-20%] w-[80%] h-[80%] bg-violet-600/10 rounded-full blur-[120px] pointer-events-none" />
           <div className="absolute bottom-[-20%] right-[-20%] w-[80%] h-[80%] bg-emerald-600/10 rounded-full blur-[120px] pointer-events-none" />
           
           <div className="relative z-10">
             <span className="text-[10px] font-mono font-bold tracking-widest text-violet-400 uppercase bg-violet-950/40 px-3 py-1.5 rounded-full border border-violet-900/50">
-              GROWTH SCALING CLIENT PORTAL
+              PORTAL EXCLUSIVO DE SOCIOS
             </span>
-            <h2 className="text-3xl font-bold tracking-tight text-white mt-6 font-display leading-tight">
-              Escala tu negocio con precisión matemática y decisiones tácticas.
-            </h2>
-            <p className="text-slate-400 text-xs mt-3 max-w-md font-sans leading-relaxed">
-              La consola definitiva para directores de crecimiento y consultores de negocios. Sincronización en la nube, métricas de retención, automatización de presupuestos y diagnósticos estratégicos en tiempo real.
+            <div className="mt-8 space-y-2">
+              <h2 className="text-4xl font-extrabold tracking-tight text-white font-display leading-tight">
+                Sistema gowth scaling
+              </h2>
+              <p className="text-xs font-mono tracking-widest text-violet-300 uppercase">
+                by iGenius griwth partners
+              </p>
+            </div>
+            <p className="text-slate-400 text-xs mt-4 max-w-md font-sans leading-relaxed">
+              La plataforma premium para el monitoreo estratégico de pautas digitales, optimización de embudos, estructuración de ofertas y aceleración de ingresos en tiempo real.
             </p>
           </div>
 
-          <div className="relative z-10 flex items-center justify-center py-6">
-            <div className="relative rounded-2xl overflow-hidden border border-slate-800 shadow-2xl max-w-xs aspect-[3/4] bg-zinc-900">
-              <img 
-                src="/src/assets/images/growth_login_cover_1782519757993.jpg" 
-                alt="Growth Scaling Panel" 
-                className="w-full h-full object-cover opacity-90 hover:scale-105 transition-transform duration-700"
-                referrerPolicy="no-referrer"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent flex flex-col justify-end p-5">
-                <span className="text-[9px] font-mono text-emerald-400 font-bold tracking-widest uppercase">Métricas Avanzadas</span>
-                <p className="text-white text-xs font-bold mt-1">Monitoreo de ROAS, LTV y Diagnóstico Growth</p>
+          {/* Translucent Container for Alternating Phrases */}
+          <div className="relative z-10 py-8 my-auto">
+            <div className="bg-slate-950/60 border border-slate-800 rounded-3xl p-8 shadow-2xl backdrop-blur-md relative overflow-hidden">
+              <div className="absolute -top-6 -right-6 text-slate-800/20 text-9xl font-serif pointer-events-none">
+                “
+              </div>
+              
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={currentPhraseIndex}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.5 }}
+                  className="space-y-4"
+                >
+                  <p className="text-base font-medium text-slate-100 italic leading-relaxed font-display">
+                    {SCALING_PHRASES[currentPhraseIndex]}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <span className="h-1 w-8 bg-violet-500 rounded-full" />
+                    <span className="text-[9px] font-mono text-violet-400 font-bold uppercase tracking-widest">Growth Core Strategy</span>
+                  </div>
+                </motion.div>
+              </AnimatePresence>
+
+              {/* Bullet indicators for phrases */}
+              <div className="flex gap-1.5 mt-6">
+                {SCALING_PHRASES.map((_, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setCurrentPhraseIndex(idx)}
+                    className={`h-1.5 rounded-full transition-all duration-300 ${
+                      idx === currentPhraseIndex ? 'w-5 bg-violet-500' : 'w-1.5 bg-slate-700 hover:bg-slate-500'
+                    }`}
+                  />
+                ))}
               </div>
             </div>
           </div>
 
           <div className="relative z-10 flex items-center gap-3">
-            <div className="h-8 w-8 rounded-full bg-violet-600 flex items-center justify-center text-white font-mono font-bold text-xs">
+            <div className="h-8 w-8 rounded-full bg-violet-600 flex items-center justify-center text-white font-mono font-bold text-xs shadow-md">
               G
             </div>
             <div>
               <p className="text-xs font-bold text-white font-sans">Growth Partner</p>
-              <p className="text-[10px] text-slate-500 font-mono">Consorcio Grow Partner © 2026</p>
+              <p className="text-[10px] text-slate-500 font-mono">iGenius griwth partners © 2026</p>
             </div>
           </div>
         </div>
 
-        {/* Right Side: Clean Login Form Card */}
-        <div className="flex-1 flex items-center justify-center px-4 py-12 bg-slate-50 dark:bg-zinc-950">
+        {/* Right Side: Clean Dual-Mode Login Form Card */}
+        <div className="flex-1 flex items-center justify-center px-4 py-12 bg-slate-50">
           <motion.div 
             initial={{ opacity: 0, scale: 0.98, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            className="w-full max-w-md bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800/80 rounded-3xl p-8 md:p-10 shadow-xl dark:shadow-black/40 flex flex-col gap-6"
+            className="w-full max-w-md bg-white border border-slate-200/80 rounded-3xl p-8 md:p-10 shadow-xl flex flex-col gap-6"
           >
             <div className="text-center space-y-2">
-              <div className="inline-flex bg-violet-50 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400 p-3 rounded-2xl border border-violet-100 dark:border-violet-900/40">
-                {isSignUpMode ? <UserPlus className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+              <div className="inline-flex bg-violet-50 text-violet-600 p-3 rounded-2xl border border-violet-100">
+                <Lock className="w-5 h-5" />
               </div>
               
-              <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight font-display">
-                {isSignUpMode ? 'Registrar Administrador' : 'Bienvenido Samuel'}
+              <h1 className="text-2xl font-black text-slate-900 tracking-tight font-display">
+                {targetClient && loginTab === 'client'
+                  ? `Bienvenido ${targetClient.ownerName || targetClient.companyName}`
+                  : loginTab === 'admin' 
+                    ? 'Bienvenido Samuel'
+                    : 'Acceso a Socios'}
               </h1>
               
-              <div className="flex items-center justify-center gap-1.5 pt-0.5">
-                <span className={`h-2 w-2 rounded-full ${isSupaConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} />
-                <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  {isSupaConnected ? 'Modo Cloud: Supabase Activo' : 'Modo Sandbox: Almacenamiento Local'}
-                </span>
-              </div>
-              
-              <p className="text-slate-500 dark:text-slate-400 text-xs leading-relaxed max-w-sm mx-auto font-sans pt-1">
-                {isSignUpMode 
-                  ? 'Crea una cuenta administrativa en tu base de datos en tiempo real de Supabase para iniciar tu sesión de manera segura.' 
-                  : 'Consola del Director de Crecimiento. Autentícate con tu correo y contraseña asignada para realizar ajustes tácticos.'}
+              <p className="text-slate-500 text-xs leading-relaxed max-w-sm mx-auto font-sans pt-1">
+                {loginTab === 'admin'
+                  ? 'Ingresa tus credenciales de Consultor / Administrador para realizar ajustes tácticos.'
+                  : 'Ingresa la clave única de acceso asignada por tu consultor de crecimiento.'}
               </p>
             </div>
 
-            <form onSubmit={handleAuthSubmit} className="space-y-4 font-sans text-xs">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 tracking-wider uppercase mb-1.5 font-mono">
-                  Correo Electrónico
-                </label>
-                <div className="relative">
-                  <input
-                    type="email"
-                    placeholder="ejemplo@partner.com"
-                    value={emailInput}
-                    onChange={(e) => setEmailInput(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 focus:border-violet-500/80 rounded-xl pl-10 pr-4 py-2.5 text-slate-900 dark:text-white placeholder-slate-400 font-sans outline-none transition-all text-sm"
-                    required
-                  />
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                </div>
-              </div>
+            {/* Elegant Sliding Switcher Tabs */}
+            <div className="bg-slate-100/90 border border-slate-200/60 rounded-2xl p-1 flex w-full select-none" id="login-tabs">
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginTab('admin');
+                  setAuthError('');
+                }}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  loginTab === 'admin'
+                    ? 'text-violet-700 bg-white shadow-xs border border-slate-200/40'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Consultor (Dueño)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginTab('client');
+                  setAuthError('');
+                }}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  loginTab === 'client'
+                    ? 'text-violet-700 bg-white shadow-xs border border-slate-200/40'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Key className="w-3.5 h-3.5" />
+                <span>Socio / Cliente</span>
+              </button>
+            </div>
 
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 tracking-wider uppercase mb-1.5 font-mono">
-                  Contraseña Técnica
-                </label>
-                <div className="relative">
-                  <input
-                    type="password"
-                    placeholder="••••••••"
-                    value={passwordInput}
-                    onChange={(e) => setPasswordInput(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 focus:border-violet-500/80 rounded-xl pl-10 pr-4 py-2.5 text-slate-900 dark:text-white placeholder-slate-400 font-sans outline-none transition-all text-sm"
-                    required
-                  />
-                  <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                </div>
-              </div>
+            <form onSubmit={handleAuthSubmit} className="space-y-4 font-sans text-xs">
+              
+              {loginTab === 'admin' ? (
+                <>
+                  {/* Email field */}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 tracking-wider uppercase mb-1.5 font-mono">
+                      Correo Electrónico
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="email"
+                        placeholder="samuel@partner.com"
+                        value={emailInput}
+                        onChange={(e) => setEmailInput(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 focus:border-violet-500/80 rounded-xl pl-10 pr-4 py-2.5 text-slate-900 placeholder-slate-400 outline-none transition-all text-sm shadow-xs"
+                        required
+                      />
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                    </div>
+                  </div>
+
+                  {/* Password field */}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 tracking-wider uppercase mb-1.5 font-mono">
+                      Contraseña Técnica
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="password"
+                        placeholder="••••••••"
+                        value={passwordInput}
+                        onChange={(e) => setPasswordInput(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 focus:border-violet-500/80 rounded-xl pl-10 pr-4 py-2.5 text-slate-900 placeholder-slate-400 outline-none transition-all text-sm shadow-xs"
+                        required
+                      />
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                    </div>
+                  </div>
+
+                  {/* Default Access Info Box (as requested by user) */}
+                  <div className="bg-violet-50/50 border border-violet-100 p-3.5 rounded-2xl space-y-1.5 shadow-xs">
+                    <span className="text-[9px] font-mono font-black text-violet-700 uppercase tracking-widest block">🔑 ACCESO POR DEFECTO DEL DUEÑO:</span>
+                    <div className="text-[10px] text-slate-700 leading-relaxed font-mono space-y-0.5">
+                      <div><span className="text-slate-400 font-sans">Correo:</span> <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200 font-bold text-violet-600">consultor@partner.com</code></div>
+                      <div><span className="text-slate-400 font-sans">Contraseña:</span> <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200 font-bold text-violet-600">growth2026</code></div>
+                    </div>
+                    <p className="text-[9px] text-slate-400 font-sans pt-1 leading-relaxed">
+                      * Ingresa con estos datos predeterminados. Al ingresar, podrás cambiar el correo y la contraseña dentro de la pestaña de Configuración.
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Access Key field */}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 tracking-wider uppercase mb-1.5 font-mono">
+                      Digite su clave única de acceso
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="password"
+                        placeholder="Escribe tu clave aquí..."
+                        value={accessKeyInput}
+                        onChange={(e) => setAccessKeyInput(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 focus:border-violet-500/80 rounded-xl pl-10 pr-4 py-3 text-slate-900 placeholder-slate-400 outline-none transition-all text-sm shadow-inner"
+                        required
+                      />
+                      <Key className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                    </div>
+                  </div>
+
+                  {/* Target partner greeting preview card if active */}
+                  {targetClient && (
+                    <div className="bg-violet-50/80 border border-violet-100 p-3.5 rounded-2xl text-center space-y-1 shadow-xs animate-in fade-in zoom-in-95 duration-200">
+                      <span className="text-[9px] font-mono font-bold text-violet-600 uppercase tracking-widest">Socio Identificado</span>
+                      <p className="text-xs font-black text-violet-950 font-display">{targetClient.companyName}</p>
+                      <p className="text-[10px] text-slate-500 font-sans">Dirigido a {targetClient.ownerName}</p>
+                    </div>
+                  )}
+                </>
+              )}
 
               {authError && (
-                <p className="text-xs text-rose-600 dark:text-rose-400 text-center bg-rose-50 dark:bg-rose-950/30 p-2.5 rounded-xl border border-rose-100 dark:border-rose-900/40 font-medium font-sans leading-relaxed">
+                <p className="text-xs text-rose-600 text-center bg-rose-50 p-2.5 rounded-xl border border-rose-100 font-medium font-sans leading-relaxed">
                   {authError}
                 </p>
               )}
@@ -821,60 +986,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <button
                 type="submit"
                 disabled={authLoading}
-                className="w-full bg-violet-600 hover:bg-violet-700 disabled:bg-violet-400 text-white font-bold py-3 px-4 rounded-xl shadow-xs transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer text-sm font-display tracking-wide uppercase"
+                className="w-full bg-violet-600 hover:bg-violet-700 disabled:bg-violet-400 text-white font-bold py-3.5 px-4 rounded-xl shadow-md hover:shadow-lg transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer text-sm font-display tracking-wide uppercase"
               >
                 {authLoading ? (
                   <RefreshCw className="w-4 h-4 animate-spin" />
                 ) : (
-                  <span>{isSignUpMode ? 'Registrar Cuenta' : 'Iniciar Sesión'}</span>
+                  <span>Ingresar al Sistema</span>
                 )}
               </button>
             </form>
 
-            {/* Toggle register mode for Supabase Auth */}
-            {isSupaConnected && (
-              <div className="text-center font-sans">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsSignUpMode(!isSignUpMode);
-                    setAuthError('');
-                  }}
-                  className="text-xs font-bold text-violet-600 hover:text-violet-700 transition-colors cursor-pointer inline-flex items-center gap-1"
-                >
-                  {isSignUpMode ? '¿Ya tienes cuenta? Iniciar Sesión' : '¿Nueva base de datos? Regístrate aquí'}
-                </button>
-              </div>
-            )}
-
-            {/* Hints for Sandbox Mode */}
-            {!isSupaConnected && (
-              <div className="bg-slate-50 dark:bg-zinc-950/40 border border-slate-200 dark:border-zinc-850 p-3.5 rounded-xl space-y-1.5">
-                <span className="text-[10px] font-mono font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">🔑 Credenciales Locales Activas:</span>
-                <div className="text-[10.5px] text-slate-600 dark:text-slate-350 leading-relaxed font-mono space-y-1">
-                  <div>
-                    <span className="text-slate-400 font-sans">Correo:</span> <code className="bg-white dark:bg-zinc-900 px-1.5 py-0.5 rounded border border-slate-100 dark:border-zinc-800 font-bold">{config.adminEmail}</code>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 font-sans">Contraseña:</span> <code className="bg-white dark:bg-zinc-900 px-1.5 py-0.5 rounded border border-slate-100 dark:border-zinc-800 font-bold">{config.accessPassword}</code>
-                  </div>
-                  <div className="text-[9px] text-slate-400 font-sans pt-1">
-                    * También puedes ingresar con correo <code className="font-bold">admin@partner.com</code> y contraseña <code className="font-bold">admin</code>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between border-t border-slate-100 dark:border-zinc-800 pt-4">
-              <button
-                onClick={onBackToClientView}
-                className="text-xs font-bold text-slate-500 hover:text-violet-600 transition-colors cursor-pointer font-mono"
-              >
-                ← Volver a Vista de Cliente
-              </button>
-              
-              <span className="text-[9px] font-mono text-slate-400">
-                GROWTH SCALING v3.2
+            <div className="flex items-center justify-center border-t border-slate-100 pt-4">
+              <span className="text-[9px] font-mono text-slate-400 uppercase tracking-widest">
+                iGenius griwth partners
               </span>
             </div>
           </motion.div>
@@ -1304,9 +1428,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                         {/* Interactive actions */}
                         <div className="w-full flex items-center justify-between mt-4 border-t border-slate-100 dark:border-zinc-800/80 pt-3">
-                          <span className="text-[11px] text-slate-500 dark:text-slate-405 font-sans">
-                            Socio: <strong className="text-slate-800 dark:text-slate-200 font-semibold">{client.ownerName}</strong>
-                          </span>
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-[11px] text-slate-500 dark:text-slate-405 font-sans">
+                              Socio: <strong className="text-slate-800 dark:text-slate-200 font-semibold">{client.ownerName}</strong>
+                            </span>
+                            {client.accessKey && (
+                              <span className="text-[10px] font-mono text-violet-600 dark:text-violet-400 flex items-center gap-1 font-bold">
+                                🔑 Clave: <code className="bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 rounded border border-slate-200 dark:border-zinc-800 select-all">{client.accessKey}</code>
+                              </span>
+                            )}
+                          </div>
                           
                           <div className="flex items-center gap-1.5">
                             {/* Diagnostic Deep Dive */}
@@ -1697,6 +1828,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             onChange={(e) => handleBaseFieldChange('industry', e.target.value)}
                             className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white"
                           />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 font-mono">Clave Única de Acceso Partner</label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={selectedClient.accessKey || ''}
+                              onChange={(e) => handleBaseFieldChange('accessKey', e.target.value.toUpperCase().replace(/\s+/g, ''))}
+                              placeholder="Ej. MED-1234"
+                              className="flex-1 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono font-bold text-violet-600 dark:text-violet-400"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const prefix = selectedClient.companyName.substring(0, 3).toUpperCase().replace(/[^A-Z]/g, 'GS');
+                                const randNum = Math.floor(1000 + Math.random() * 9000);
+                                handleBaseFieldChange('accessKey', `${prefix}-${randNum}`);
+                              }}
+                              className="bg-violet-50 hover:bg-violet-100 dark:bg-violet-950/40 dark:hover:bg-violet-900 border border-violet-200 dark:border-violet-900 px-3 py-1.5 rounded-xl text-[10px] font-bold text-violet-600 dark:text-violet-400 cursor-pointer"
+                            >
+                              Regenerar
+                            </button>
+                          </div>
+                          <p className="text-[9px] text-slate-400 mt-1">Esta clave sirve para que el cliente ingrese de forma exclusiva a su tablero.</p>
                         </div>
 
                         <div>

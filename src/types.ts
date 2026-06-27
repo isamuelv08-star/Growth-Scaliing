@@ -32,6 +32,7 @@ export interface ClientBoard {
   industry: string;
   currentMonth: number; // 1 to 6
   statusMessage: string;
+  accessKey?: string; // Unique client key for logging in
   kpis: {
     ventas: KPIValue;
     leads: KPIValue;

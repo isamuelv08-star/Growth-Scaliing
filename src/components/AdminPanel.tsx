@@ -7,6 +7,14 @@ import React, { useState } from 'react';
 import { ClientBoard, KPIValue, LogEntry } from '../types';
 import { compressClientBoard, getCompanySlug, generatePDFReport } from '../utils';
 import { 
+  getSupabaseCredentials, 
+  saveSupabaseCredentials, 
+  clearSupabaseCredentials, 
+  getSupabaseClient,
+  resetSupabaseClient,
+  SUPABASE_SQL_SCHEMA
+} from '../supabaseClient';
+import { 
   Lock, 
   Plus, 
   Trash2, 
@@ -71,6 +79,7 @@ interface AdminPanelProps {
   onBackToClientView: () => void;
   config: AppConfig;
   onUpdateConfig: (updatedConfig: AppConfig) => void;
+  onSupabaseConfigChange?: () => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -79,7 +88,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onSelectClientForView,
   onBackToClientView,
   config,
-  onUpdateConfig
+  onUpdateConfig,
+  onSupabaseConfigChange
 }) => {
   const [passwordInput, setPasswordInput] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -124,6 +134,69 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Save feedback state
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Supabase states
+  const [supabaseUrl, setSupabaseUrl] = useState(() => getSupabaseCredentials()?.url || '');
+  const [supabaseAnonKey, setSupabaseAnonKey] = useState(() => getSupabaseCredentials()?.anonKey || '');
+  const [isSupaConnected, setIsSupaConnected] = useState(() => !!getSupabaseClient());
+  const [isTestingSupa, setIsTestingSupa] = useState(false);
+  const [supaTestMsg, setSupaTestMsg] = useState('');
+  const [copiedSQL, setCopiedSQL] = useState(false);
+
+  // Connection tester
+  const handleTestSupabase = async (url: string, key: string) => {
+    if (!url.trim() || !key.trim()) {
+      setSupaTestMsg('Por favor ingresa URL y Anon Key válidos.');
+      setIsSupaConnected(false);
+      return;
+    }
+    
+    setIsTestingSupa(true);
+    setSupaTestMsg('Probando conexión con Supabase...');
+    
+    try {
+      // Temporarily save to test
+      saveSupabaseCredentials(url.trim(), key.trim());
+      resetSupabaseClient();
+      const client = getSupabaseClient();
+      if (!client) {
+        throw new Error("No se pudo iniciar el cliente Supabase");
+      }
+      
+      // Query to check table existence
+      const { data, error } = await client.from('client_boards').select('id').limit(1);
+      
+      if (error) {
+        if (error.code === '42P01') {
+          throw new Error("¡Conectado! Pero la tabla 'client_boards' no existe todavía. Por favor ejecuta el script SQL provisto abajo en tu editor.");
+        }
+        throw new Error(error.message);
+      }
+      
+      setIsSupaConnected(true);
+      setSupaTestMsg('¡Conexión exitosa! El portal ahora está sincronizado en tiempo real con tu base de datos Supabase PostgreSQL.');
+      if (onSupabaseConfigChange) {
+        onSupabaseConfigChange();
+      }
+    } catch (err: any) {
+      setIsSupaConnected(false);
+      setSupaTestMsg(`Error de conexión: ${err.message || err}`);
+    } finally {
+      setIsTestingSupa(false);
+    }
+  };
+
+  const handleDisconnectSupabase = () => {
+    clearSupabaseCredentials();
+    resetSupabaseClient();
+    setSupabaseUrl('');
+    setSupabaseAnonKey('');
+    setIsSupaConnected(false);
+    setSupaTestMsg('Desconectado de Supabase. Retornando a almacenamiento local.');
+    if (onSupabaseConfigChange) {
+      onSupabaseConfigChange();
+    }
+  };
 
   const selectedClient = clients.find(c => c.id === selectedClientId) || clients[0];
 
@@ -1939,6 +2012,100 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </button>
                       </div>
                     </form>
+
+                    {/* SUPABASE INTEGRATION BLOCK */}
+                    <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4 shadow-xs">
+                      <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-800 pb-3">
+                        <div className="flex items-center gap-2">
+                          <Database className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                          <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-850 dark:text-white">Conexión con Supabase (Live Backend)</h3>
+                        </div>
+                        <span className={`text-[9px] font-mono font-bold px-2.5 py-0.5 rounded-full ${isSupaConnected ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'}`}>
+                          {isSupaConnected ? '● CONECTADO' : '● MODO LOCAL'}
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-slate-550 dark:text-slate-400 leading-relaxed font-sans">
+                        Sincroniza tus clientes, métricas y bitácoras en tiempo real con una base de datos PostgreSQL en la nube. Perfecto para asegurar persistencia y desplegar en <strong>Vercel</strong>.
+                      </p>
+
+                      <div className="space-y-3 font-sans text-xs">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 font-mono">SUPABASE_URL</label>
+                          <input
+                            type="text"
+                            placeholder="https://xxxxxxxxx.supabase.co"
+                            value={supabaseUrl}
+                            onChange={(e) => setSupabaseUrl(e.target.value)}
+                            className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-mono"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 font-mono">SUPABASE_ANON_KEY (Public Key)</label>
+                          <input
+                            type="password"
+                            placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                            value={supabaseAnonKey}
+                            onChange={(e) => setSupabaseAnonKey(e.target.value)}
+                            className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-mono"
+                          />
+                        </div>
+
+                        {supaTestMsg && (
+                          <div className={`p-3 rounded-xl border text-[11px] leading-relaxed font-sans ${isSupaConnected ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 text-emerald-800 dark:text-emerald-300' : 'bg-rose-50 dark:bg-rose-950/20 border-rose-200 text-rose-800 dark:text-rose-300'}`}>
+                            {supaTestMsg}
+                          </div>
+                        )}
+
+                        <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                          <button
+                            type="button"
+                            disabled={isTestingSupa}
+                            onClick={() => handleTestSupabase(supabaseUrl, supabaseAnonKey)}
+                            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${isTestingSupa ? 'animate-spin' : ''}`} />
+                            <span>{isTestingSupa ? 'Verificando...' : 'Guardar y Vincular Supabase'}</span>
+                          </button>
+
+                          {isSupaConnected && (
+                            <button
+                              type="button"
+                              onClick={handleDisconnectSupabase}
+                              className="bg-rose-50 dark:bg-rose-950/20 hover:bg-rose-100 text-rose-600 border border-rose-200 dark:border-rose-900/60 font-bold py-2 px-4 rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center gap-1"
+                            >
+                              <span>Desconectar</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* SQL Schema helper copy block */}
+                      <div className="pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-2 font-sans text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase font-mono">1. Script para tu Editor de SQL</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(SUPABASE_SQL_SCHEMA);
+                              setCopiedSQL(true);
+                              setTimeout(() => setCopiedSQL(false), 2000);
+                            }}
+                            className="text-[10px] text-violet-600 hover:text-violet-700 font-bold flex items-center gap-1 cursor-pointer"
+                          >
+                            <Copy className="w-3 h-3" />
+                            <span>{copiedSQL ? '¡Copiado!' : 'Copiar Script SQL'}</span>
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          Antes de probar la conexión, copia este script y ejecútalo en el <strong>SQL Editor</strong> de tu panel de Supabase para estructurar las tablas:
+                        </p>
+                        <pre className="p-3 bg-slate-950 border border-zinc-850 text-[10px] leading-relaxed text-zinc-300 rounded-xl max-h-40 overflow-y-auto font-mono text-left scrollbar-thin">
+                          {SUPABASE_SQL_SCHEMA}
+                        </pre>
+                      </div>
+                    </div>
 
                   </div>
 

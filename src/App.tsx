@@ -6,6 +6,12 @@
 import { useState, useEffect } from 'react';
 import { ClientBoard } from './types';
 import { DEFAULT_CLIENTS } from './mockData';
+import { 
+  getSupabaseClient, 
+  fetchSupabaseBoards, 
+  saveSupabaseBoard, 
+  deleteSupabaseBoard 
+} from './supabaseClient';
 import { ClientView } from './components/ClientView';
 import { AdminPanel } from './components/AdminPanel';
 import { 
@@ -100,14 +106,71 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeStepInfo, setActiveStepInfo] = useState<number | null>(null);
 
-  // Sync state to local storage when changed
-  useEffect(() => {
-    try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(clients));
-    } catch (e) {
-      console.error("Fallo al guardar en caché local", e);
+  // Supabase connection and synchronization states
+  const [isUsingSupabase, setIsUsingSupabase] = useState(false);
+  const [supabaseLoading, setSupabaseLoading] = useState(false);
+
+  // Load database content from Supabase
+  const loadSupabaseData = async () => {
+    const client = getSupabaseClient();
+    if (!client) {
+      setIsUsingSupabase(false);
+      return;
     }
-  }, [clients]);
+    
+    setSupabaseLoading(true);
+    setIsUsingSupabase(true);
+    try {
+      const dbBoards = await fetchSupabaseBoards();
+      if (dbBoards.length > 0) {
+        setClients(dbBoards);
+      } else {
+        // If Supabase database is brand new and empty, seed it with current clients
+        console.log("Supabase database empty, seeding initial clients...");
+        for (const c of clients) {
+          await saveSupabaseBoard(c);
+        }
+        const reFetched = await fetchSupabaseBoards();
+        if (reFetched.length > 0) {
+          setClients(reFetched);
+        }
+      }
+    } catch (err) {
+      console.error("Fallo al sincronizar con Supabase, usando almacenamiento local.", err);
+    } finally {
+      setSupabaseLoading(false);
+    }
+  };
+
+  // Check connection state on mount
+  useEffect(() => {
+    const client = getSupabaseClient();
+    setIsUsingSupabase(!!client);
+  }, []);
+
+  // Fetch whenever Supabase mode changes
+  useEffect(() => {
+    if (isUsingSupabase) {
+      loadSupabaseData();
+    }
+  }, [isUsingSupabase]);
+
+  // Handle configuration change triggers (re-evaluates connection status)
+  const handleSupabaseConfigChange = () => {
+    const client = getSupabaseClient();
+    setIsUsingSupabase(!!client);
+  };
+
+  // Sync state to local storage when changed (only if not using Supabase to avoid overwriting cache with transient loads)
+  useEffect(() => {
+    if (!isUsingSupabase) {
+      try {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(clients));
+      } catch (e) {
+        console.error("Fallo al guardar en caché local", e);
+      }
+    }
+  }, [clients, isUsingSupabase]);
 
   // Sync config & Theme to DOM
   useEffect(() => {
@@ -190,8 +253,27 @@ export default function App() {
   }, [clients]);
 
   // Update client database callback
-  const handleUpdateClientsList = (updated: ClientBoard[]) => {
+  const handleUpdateClientsList = async (updated: ClientBoard[]) => {
     setClients(updated);
+
+    // Synchronize with Supabase asynchronously if live connection is active
+    const client = getSupabaseClient();
+    if (client) {
+      try {
+        // Detect and handle deletions
+        const deletedBoards = clients.filter(c => !updated.some(u => u.id === c.id));
+        for (const board of deletedBoards) {
+          await deleteSupabaseBoard(board.id);
+        }
+
+        // Detect and handle additions / updates
+        for (const board of updated) {
+          await saveSupabaseBoard(board);
+        }
+      } catch (err) {
+        console.error("Fallo al sincronizar actualizaciones con Supabase", err);
+      }
+    }
   };
 
   const currentClient = clients.find(c => c.id === selectedClientId) || clients[0];
@@ -734,6 +816,7 @@ export default function App() {
                   onSelectClientForView={(id) => setSelectedClientId(id)}
                   config={config}
                   onUpdateConfig={setConfig}
+                  onSupabaseConfigChange={handleSupabaseConfigChange}
                   onBackToClientView={() => {
                     if (clients.length > 0) {
                       if (!selectedClientId) {

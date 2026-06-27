@@ -49,13 +49,15 @@ export interface AppConfig {
   theme: 'light' | 'dark';
   consultantName: string;
   consultantAgency: string;
+  adminEmail: string;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
   accessPassword: 'growth2026',
   theme: 'light',
   consultantName: 'Consorcio Grow Partner',
-  consultantAgency: 'Consorcio Grow Partner'
+  consultantAgency: 'Consorcio Grow Partner',
+  adminEmail: 'consultor@partner.com'
 };
 
 const CYCLIC_STEPS = [
@@ -99,6 +101,7 @@ export default function App() {
 
   // Navigation states: 'welcome' | 'client' | 'admin'
   const [viewMode, setViewMode] = useState<'welcome' | 'client' | 'admin'>('welcome');
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<string>('');
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   
@@ -304,7 +307,8 @@ export default function App() {
       <div className="absolute bottom-[10%] right-[-15%] w-[55%] h-[55%] rounded-full opacity-30 blur-[130px] pointer-events-none ambient-light-emerald" />
 
       {/* Global Header */}
-      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200/80" id="global-header-bar">
+      {!(viewMode === 'admin' && !isAdminAuthenticated) && (
+        <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200/80" id="global-header-bar">
         <div className="max-w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           
           <div className="flex items-center gap-3">
@@ -428,12 +432,13 @@ export default function App() {
           </div>
         </div>
       </header>
+      )}
 
       {/* Main Container Workspace */}
       <div className="flex-grow flex flex-row overflow-hidden relative" id="main-content-flow">
         
         {/* COLLAPSIBLE PREMIUM SIDEBAR PANEL */}
-        {viewMode !== 'welcome' && (
+        {viewMode !== 'welcome' && !(viewMode === 'admin' && !isAdminAuthenticated) && (
           <AnimatePresence initial={false}>
             {sidebarOpen && (
               <motion.aside
@@ -817,6 +822,7 @@ export default function App() {
                   config={config}
                   onUpdateConfig={setConfig}
                   onSupabaseConfigChange={handleSupabaseConfigChange}
+                  onAuthChange={setIsAdminAuthenticated}
                   onBackToClientView={() => {
                     if (clients.length > 0) {
                       if (!selectedClientId) {

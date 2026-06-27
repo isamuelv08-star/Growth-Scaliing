@@ -12,7 +12,11 @@ import {
   clearSupabaseCredentials, 
   getSupabaseClient,
   resetSupabaseClient,
-  SUPABASE_SQL_SCHEMA
+  SUPABASE_SQL_SCHEMA,
+  supabaseSignIn,
+  supabaseSignUp,
+  supabaseSignOut,
+  supabaseGetSession
 } from '../supabaseClient';
 import { 
   Lock, 
@@ -48,7 +52,9 @@ import {
   Upload,
   RefreshCw,
   Sliders,
-  Sparkle
+  Sparkle,
+  Mail,
+  UserPlus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -70,6 +76,7 @@ interface AppConfig {
   theme: 'light' | 'dark';
   consultantName: string;
   consultantAgency: string;
+  adminEmail: string;
 }
 
 interface AdminPanelProps {
@@ -80,6 +87,7 @@ interface AdminPanelProps {
   config: AppConfig;
   onUpdateConfig: (updatedConfig: AppConfig) => void;
   onSupabaseConfigChange?: () => void;
+  onAuthChange?: (authenticated: boolean) => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -89,11 +97,51 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onBackToClientView,
   config,
   onUpdateConfig,
-  onSupabaseConfigChange
+  onSupabaseConfigChange,
+  onAuthChange
 }) => {
+  // Supabase states first so other hooks can reference isSupaConnected
+  const [supabaseUrl, setSupabaseUrl] = useState(() => getSupabaseCredentials()?.url || '');
+  const [supabaseAnonKey, setSupabaseAnonKey] = useState(() => getSupabaseCredentials()?.anonKey || '');
+  const [isSupaConnected, setIsSupaConnected] = useState(() => !!getSupabaseClient());
+  const [isTestingSupa, setIsTestingSupa] = useState(false);
+  const [supaTestMsg, setSupaTestMsg] = useState('');
+  const [copiedSQL, setCopiedSQL] = useState(false);
+
+  const [emailInput, setEmailInput] = useState(config.adminEmail || 'consultor@partner.com');
   const [passwordInput, setPasswordInput] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [isSignUpMode, setIsSignUpMode] = useState(false);
+  const [authLoading, setAuthLoading] = useState(false);
+
+  // Notify parent on authentication state change
+  React.useEffect(() => {
+    if (onAuthChange) {
+      onAuthChange(isAuthenticated);
+    }
+  }, [isAuthenticated, onAuthChange]);
+
+  // Check Supabase session on mount
+  React.useEffect(() => {
+    const checkSession = async () => {
+      const client = getSupabaseClient();
+      if (client) {
+        setAuthLoading(true);
+        try {
+          const session = await supabaseGetSession();
+          if (session?.user) {
+            setIsAuthenticated(true);
+          }
+        } catch (e) {
+          console.error("No active session or error reading session", e);
+        } finally {
+          setAuthLoading(false);
+        }
+      }
+    };
+    checkSession();
+  }, [isSupaConnected]);
   
   // Navigation Tabs inside Admin Mode: 'home' | 'socios' | 'diagnostic' | 'workspace' | 'settings'
   const [activeTab, setActiveTab] = useState<'home' | 'socios' | 'diagnostic' | 'workspace' | 'settings'>('home');
@@ -121,6 +169,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Settings states
   const [newPassword, setNewPassword] = useState(config.accessPassword);
+  const [newAdminEmail, setNewAdminEmail] = useState(config.adminEmail || 'consultor@partner.com');
   const [tempConsultantName, setTempConsultantName] = useState(config.consultantName);
   const [tempConsultantAgency, setTempConsultantAgency] = useState(config.consultantAgency);
   const [importJsonText, setImportJsonText] = useState('');
@@ -134,14 +183,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Save feedback state
   const [saveSuccess, setSaveSuccess] = useState(false);
-
-  // Supabase states
-  const [supabaseUrl, setSupabaseUrl] = useState(() => getSupabaseCredentials()?.url || '');
-  const [supabaseAnonKey, setSupabaseAnonKey] = useState(() => getSupabaseCredentials()?.anonKey || '');
-  const [isSupaConnected, setIsSupaConnected] = useState(() => !!getSupabaseClient());
-  const [isTestingSupa, setIsTestingSupa] = useState(false);
-  const [supaTestMsg, setSupaTestMsg] = useState('');
-  const [copiedSQL, setCopiedSQL] = useState(false);
 
   // Connection tester
   const handleTestSupabase = async (url: string, key: string) => {
@@ -198,16 +239,82 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      if (isSupaConnected) {
+        await supabaseSignOut();
+      }
+    } catch (e) {
+      console.error("Error signing out from Supabase", e);
+    }
+    setIsAuthenticated(false);
+    setPasswordInput('');
+  };
+
   const selectedClient = clients.find(c => c.id === selectedClientId) || clients[0];
 
-  // Password submission
-  const handleLogin = (e: React.FormEvent) => {
+  // Email and Password Login / Signup handler
+  const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (passwordInput === config.accessPassword || passwordInput.trim() === 'admin') {
-      setIsAuthenticated(true);
-      setAuthError('');
-    } else {
-      setAuthError(`Contraseña incorrecta. Prueba con la clave activa.`);
+    setAuthError('');
+    setAuthLoading(true);
+
+    const email = emailInput.trim();
+    const password = passwordInput;
+
+    if (!email || !password) {
+      setAuthError('Por favor ingresa tanto el correo como la contraseña.');
+      setAuthLoading(false);
+      return;
+    }
+
+    try {
+      if (isSupaConnected) {
+        if (isSignUpMode) {
+          // Register a new user in Supabase Auth
+          const data = await supabaseSignUp(email, password);
+          if (data?.user) {
+            setAuthError('¡Usuario registrado con éxito! Verifica tu correo (si tienes habilitada la confirmación) o inicia sesión.');
+            setIsSignUpMode(false);
+          } else {
+            throw new Error("No se pudo registrar el usuario. Revisa las directivas de Supabase.");
+          }
+        } else {
+          // Sign In with Supabase Auth
+          const data = await supabaseSignIn(email, password);
+          if (data?.user || data?.session) {
+            setIsAuthenticated(true);
+            setAuthError('');
+          } else {
+            throw new Error("Credenciales inválidas en Supabase.");
+          }
+        }
+      } else {
+        // Local Credentials Authentication
+        const isDefaultCreds = (email === 'admin@partner.com' && password === 'admin');
+        const isConfigCreds = (email === config.adminEmail && password === config.accessPassword);
+        const isLegacyCreds = (email === 'consultor@partner.com' && password === config.accessPassword);
+        
+        if (isConfigCreds || isDefaultCreds || isLegacyCreds) {
+          setIsAuthenticated(true);
+          setAuthError('');
+        } else {
+          setAuthError('Credenciales incorrectas. Para modo local, usa el correo del consultor y tu clave de acceso.');
+        }
+      }
+    } catch (err: any) {
+      console.error("Authentication error", err);
+      let errMsg = err.message || 'Error de autenticación desconocido.';
+      if (errMsg.includes('Invalid login credentials')) {
+        errMsg = 'Credenciales de acceso inválidas. Revisa tu correo y contraseña, o regístrate si es una base de datos nueva.';
+      } else if (errMsg.includes('User already registered')) {
+        errMsg = 'El usuario ya se encuentra registrado en este proyecto de Supabase.';
+      } else if (errMsg.includes('Email not confirmed')) {
+        errMsg = 'Por favor confirma tu correo electrónico en Supabase o deshabilita "Confirm Email" en Supabase Auth Providers.';
+      }
+      setAuthError(errMsg);
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -545,7 +652,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       ...config,
       accessPassword: newPassword,
       consultantName: tempConsultantName,
-      consultantAgency: tempConsultantAgency
+      consultantAgency: tempConsultantAgency,
+      adminEmail: newAdminEmail
     });
     alert("¡Configuración de la aplicación guardada exitosamente!");
   };
@@ -594,67 +702,183 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   if (!isAuthenticated) {
     return (
-      <div className="max-w-md mx-auto px-4 py-16" id="admin-login-view">
-        <motion.div 
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl p-8 shadow-md flex flex-col gap-6"
-        >
-          <div className="text-center">
-            <div className="inline-flex bg-violet-50 dark:bg-violet-950/50 text-violet-700 dark:text-violet-400 p-3 rounded-2xl mb-3 border border-violet-100 dark:border-violet-900/50">
-              <Lock className="w-6 h-6" />
-            </div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight font-display">
-              Acceso Growth Scaling
-            </h1>
-            <p className="text-slate-500 dark:text-slate-400 text-xs mt-1 leading-relaxed">
-              Consola del Consultor de Ventas y Crecimiento. Ingrese la clave técnica activa para administrar el portafolio.
+      <div className="min-h-screen w-full bg-slate-50 dark:bg-zinc-950 flex flex-col md:flex-row" id="admin-login-view">
+        {/* Left Side: Growth Presentation Banner */}
+        <div className="hidden md:flex md:w-1/2 bg-slate-900 dark:bg-black text-white p-12 flex-col justify-between relative overflow-hidden select-none border-r border-slate-200 dark:border-zinc-900">
+          {/* Ambient light effects */}
+          <div className="absolute top-[-20%] left-[-20%] w-[80%] h-[80%] bg-violet-600/10 rounded-full blur-[120px] pointer-events-none" />
+          <div className="absolute bottom-[-20%] right-[-20%] w-[80%] h-[80%] bg-emerald-600/10 rounded-full blur-[120px] pointer-events-none" />
+          
+          <div className="relative z-10">
+            <span className="text-[10px] font-mono font-bold tracking-widest text-violet-400 uppercase bg-violet-950/40 px-3 py-1.5 rounded-full border border-violet-900/50">
+              GROWTH SCALING CLIENT PORTAL
+            </span>
+            <h2 className="text-3xl font-bold tracking-tight text-white mt-6 font-display leading-tight">
+              Escala tu negocio con precisión matemática y decisiones tácticas.
+            </h2>
+            <p className="text-slate-400 text-xs mt-3 max-w-md font-sans leading-relaxed">
+              La consola definitiva para directores de crecimiento y consultores de negocios. Sincronización en la nube, métricas de retención, automatización de presupuestos y diagnósticos estratégicos en tiempo real.
             </p>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-4 font-sans">
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 tracking-wider uppercase mb-1.5 font-mono">
-                Clave de Seguridad Consultor
-              </label>
-              <input
-                type="password"
-                placeholder="Ingresar clave técnica..."
-                value={passwordInput}
-                onChange={(e) => setPasswordInput(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 focus:border-violet-500/80 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-400 font-sans outline-none transition-all text-sm text-center font-bold tracking-wider"
-                required
+          <div className="relative z-10 flex items-center justify-center py-6">
+            <div className="relative rounded-2xl overflow-hidden border border-slate-800 shadow-2xl max-w-xs aspect-[3/4] bg-zinc-900">
+              <img 
+                src="/src/assets/images/growth_login_cover_1782519757993.jpg" 
+                alt="Growth Scaling Panel" 
+                className="w-full h-full object-cover opacity-90 hover:scale-105 transition-transform duration-700"
+                referrerPolicy="no-referrer"
               />
-            </div>
-
-            {authError && (
-              <p className="text-xs text-rose-600 dark:text-rose-400 text-center bg-rose-50 dark:bg-rose-950/30 p-2.5 rounded-lg border border-rose-100 dark:border-rose-900/40 font-medium font-mono">
-                {authError}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 px-4 rounded-xl shadow-xs transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer text-sm font-display tracking-wide"
-            >
-              <span>Ingresar a Consola</span>
-            </button>
-          </form>
-
-          <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 p-3.5 rounded-xl flex items-start gap-2.5">
-            <span className="text-amber-600 dark:text-amber-400 font-bold text-sm shrink-0">💡</span>
-            <div className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed font-mono">
-              <strong>Clave Inicial Demo:</strong> <code className="bg-white dark:bg-zinc-900 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 font-bold">{config.accessPassword}</code>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent flex flex-col justify-end p-5">
+                <span className="text-[9px] font-mono text-emerald-400 font-bold tracking-widest uppercase">Métricas Avanzadas</span>
+                <p className="text-white text-xs font-bold mt-1">Monitoreo de ROAS, LTV y Diagnóstico Growth</p>
+              </div>
             </div>
           </div>
 
-          <button
-            onClick={onBackToClientView}
-            className="text-xs font-bold text-slate-500 hover:text-violet-600 transition-colors text-center cursor-pointer font-mono"
+          <div className="relative z-10 flex items-center gap-3">
+            <div className="h-8 w-8 rounded-full bg-violet-600 flex items-center justify-center text-white font-mono font-bold text-xs">
+              G
+            </div>
+            <div>
+              <p className="text-xs font-bold text-white font-sans">Growth Partner</p>
+              <p className="text-[10px] text-slate-500 font-mono">Consorcio Grow Partner © 2026</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Side: Clean Login Form Card */}
+        <div className="flex-1 flex items-center justify-center px-4 py-12 bg-slate-50 dark:bg-zinc-950">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.98, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="w-full max-w-md bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800/80 rounded-3xl p-8 md:p-10 shadow-xl dark:shadow-black/40 flex flex-col gap-6"
           >
-            ← Volver a Vista de Cliente
-          </button>
-        </motion.div>
+            <div className="text-center space-y-2">
+              <div className="inline-flex bg-violet-50 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400 p-3 rounded-2xl border border-violet-100 dark:border-violet-900/40">
+                {isSignUpMode ? <UserPlus className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+              </div>
+              
+              <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight font-display">
+                {isSignUpMode ? 'Registrar Administrador' : 'Bienvenido Samuel'}
+              </h1>
+              
+              <div className="flex items-center justify-center gap-1.5 pt-0.5">
+                <span className={`h-2 w-2 rounded-full ${isSupaConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} />
+                <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  {isSupaConnected ? 'Modo Cloud: Supabase Activo' : 'Modo Sandbox: Almacenamiento Local'}
+                </span>
+              </div>
+              
+              <p className="text-slate-500 dark:text-slate-400 text-xs leading-relaxed max-w-sm mx-auto font-sans pt-1">
+                {isSignUpMode 
+                  ? 'Crea una cuenta administrativa en tu base de datos en tiempo real de Supabase para iniciar tu sesión de manera segura.' 
+                  : 'Consola del Director de Crecimiento. Autentícate con tu correo y contraseña asignada para realizar ajustes tácticos.'}
+              </p>
+            </div>
+
+            <form onSubmit={handleAuthSubmit} className="space-y-4 font-sans text-xs">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 tracking-wider uppercase mb-1.5 font-mono">
+                  Correo Electrónico
+                </label>
+                <div className="relative">
+                  <input
+                    type="email"
+                    placeholder="ejemplo@partner.com"
+                    value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 focus:border-violet-500/80 rounded-xl pl-10 pr-4 py-2.5 text-slate-900 dark:text-white placeholder-slate-400 font-sans outline-none transition-all text-sm"
+                    required
+                  />
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 tracking-wider uppercase mb-1.5 font-mono">
+                  Contraseña Técnica
+                </label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 focus:border-violet-500/80 rounded-xl pl-10 pr-4 py-2.5 text-slate-900 dark:text-white placeholder-slate-400 font-sans outline-none transition-all text-sm"
+                    required
+                  />
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                </div>
+              </div>
+
+              {authError && (
+                <p className="text-xs text-rose-600 dark:text-rose-400 text-center bg-rose-50 dark:bg-rose-950/30 p-2.5 rounded-xl border border-rose-100 dark:border-rose-900/40 font-medium font-sans leading-relaxed">
+                  {authError}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={authLoading}
+                className="w-full bg-violet-600 hover:bg-violet-700 disabled:bg-violet-400 text-white font-bold py-3 px-4 rounded-xl shadow-xs transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer text-sm font-display tracking-wide uppercase"
+              >
+                {authLoading ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <span>{isSignUpMode ? 'Registrar Cuenta' : 'Iniciar Sesión'}</span>
+                )}
+              </button>
+            </form>
+
+            {/* Toggle register mode for Supabase Auth */}
+            {isSupaConnected && (
+              <div className="text-center font-sans">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSignUpMode(!isSignUpMode);
+                    setAuthError('');
+                  }}
+                  className="text-xs font-bold text-violet-600 hover:text-violet-700 transition-colors cursor-pointer inline-flex items-center gap-1"
+                >
+                  {isSignUpMode ? '¿Ya tienes cuenta? Iniciar Sesión' : '¿Nueva base de datos? Regístrate aquí'}
+                </button>
+              </div>
+            )}
+
+            {/* Hints for Sandbox Mode */}
+            {!isSupaConnected && (
+              <div className="bg-slate-50 dark:bg-zinc-950/40 border border-slate-200 dark:border-zinc-850 p-3.5 rounded-xl space-y-1.5">
+                <span className="text-[10px] font-mono font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">🔑 Credenciales Locales Activas:</span>
+                <div className="text-[10.5px] text-slate-600 dark:text-slate-350 leading-relaxed font-mono space-y-1">
+                  <div>
+                    <span className="text-slate-400 font-sans">Correo:</span> <code className="bg-white dark:bg-zinc-900 px-1.5 py-0.5 rounded border border-slate-100 dark:border-zinc-800 font-bold">{config.adminEmail}</code>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-sans">Contraseña:</span> <code className="bg-white dark:bg-zinc-900 px-1.5 py-0.5 rounded border border-slate-100 dark:border-zinc-800 font-bold">{config.accessPassword}</code>
+                  </div>
+                  <div className="text-[9px] text-slate-400 font-sans pt-1">
+                    * También puedes ingresar con correo <code className="font-bold">admin@partner.com</code> y contraseña <code className="font-bold">admin</code>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between border-t border-slate-100 dark:border-zinc-800 pt-4">
+              <button
+                onClick={onBackToClientView}
+                className="text-xs font-bold text-slate-500 hover:text-violet-600 transition-colors cursor-pointer font-mono"
+              >
+                ← Volver a Vista de Cliente
+              </button>
+              
+              <span className="text-[9px] font-mono text-slate-400">
+                GROWTH SCALING v3.2
+              </span>
+            </div>
+          </motion.div>
+        </div>
       </div>
     );
   }
@@ -687,7 +911,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </button>
 
           <button
-            onClick={() => setIsAuthenticated(false)}
+            onClick={handleLogout}
             className="bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200/80 dark:hover:bg-zinc-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-zinc-750 text-xs py-2.5 px-3.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
             id="admin-btn-logout"
           >
@@ -1919,6 +2143,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <Key className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                         </div>
                         <p className="text-[10px] text-slate-405 dark:text-slate-500 mt-1">Sustituye la contraseña por defecto (growth2026) para asegurar tus tableros.</p>
+                      </div>
+
+                      {/* Admin Email Config */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 font-mono">Correo de Acceso del Consultor</label>
+                        <div className="relative">
+                          <input
+                            type="email"
+                            value={newAdminEmail}
+                            onChange={(e) => setNewAdminEmail(e.target.value)}
+                            className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 dark:text-white"
+                            required
+                          />
+                          <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                        </div>
+                        <p className="text-[10px] text-slate-405 dark:text-slate-500 mt-1">Sustituye el correo del administrador (modo sandbox/local).</p>
                       </div>
 
                       {/* Consultant Signature parameters */}

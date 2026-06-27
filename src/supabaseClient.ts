@@ -185,3 +185,35 @@ export const deleteSupabaseBoard = async (id: string): Promise<void> => {
     throw error;
   }
 };
+
+// Supabase Authentication helpers
+export const supabaseSignIn = async (email: string, pass: string): Promise<any> => {
+  const supabase = getSupabaseClient();
+  if (!supabase) throw new Error("Supabase no está configurado");
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+  if (error) throw error;
+  return data;
+};
+
+export const supabaseSignUp = async (email: string, pass: string): Promise<any> => {
+  const supabase = getSupabaseClient();
+  if (!supabase) throw new Error("Supabase no está configurado");
+  const { data, error } = await supabase.auth.signUp({ email, password: pass });
+  if (error) throw error;
+  return data;
+};
+
+export const supabaseSignOut = async (): Promise<void> => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return;
+  await supabase.auth.signOut();
+};
+
+export const supabaseGetSession = async (): Promise<any> => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+  const { data, error } = await supabase.auth.getSession();
+  if (error) return null;
+  return data.session;
+};
+

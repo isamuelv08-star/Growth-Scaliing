@@ -76,7 +76,7 @@ export default function App() {
     try {
       const stored = localStorage.getItem(CONFIG_LOCAL_STORAGE_KEY);
       if (stored) {
-        return JSON.parse(stored);
+        return { ...DEFAULT_CONFIG, ...JSON.parse(stored) };
       }
     } catch (e) {
       console.error("Fallo al leer config, usando valores por defecto", e);

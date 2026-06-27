@@ -316,11 +316,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         }
 
         // Admin credentials matching:
-        // 1. Current config credentials
-        const isConfigCreds = (email === config.adminEmail.trim().toLowerCase() && password === config.accessPassword);
+        // 1. Current config credentials safely checking for undefined
+        const adminEmailFromConfig = (config?.adminEmail || 'consultor@partner.com').trim().toLowerCase();
+        const adminPasswordFromConfig = config?.accessPassword || 'growth2026';
+        
+        const isConfigCreds = (email === adminEmailFromConfig && password === adminPasswordFromConfig);
         // 2. Fallbacks
         const isDefaultCreds = (email === 'admin@partner.com' && password === 'admin') || (email === 'samuel@partner.com' && password === 'growth2026');
-        const isLegacyCreds = (email === 'consultor@partner.com' && password === 'growth2026') || (email === 'consultor@partner.com' && password === config.accessPassword);
+        const isLegacyCreds = (email === 'consultor@partner.com' && password === 'growth2026') || (email === 'consultor@partner.com' && password === adminPasswordFromConfig);
 
         if (isConfigCreds || isDefaultCreds || isLegacyCreds) {
           setIsAuthenticated(true);
@@ -932,18 +935,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       />
                       <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                     </div>
-                  </div>
-
-                  {/* Default Access Info Box (as requested by user) */}
-                  <div className="bg-violet-50/50 border border-violet-100 p-3.5 rounded-2xl space-y-1.5 shadow-xs">
-                    <span className="text-[9px] font-mono font-black text-violet-700 uppercase tracking-widest block">🔑 ACCESO POR DEFECTO DEL DUEÑO:</span>
-                    <div className="text-[10px] text-slate-700 leading-relaxed font-mono space-y-0.5">
-                      <div><span className="text-slate-400 font-sans">Correo:</span> <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200 font-bold text-violet-600">consultor@partner.com</code></div>
-                      <div><span className="text-slate-400 font-sans">Contraseña:</span> <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200 font-bold text-violet-600">growth2026</code></div>
-                    </div>
-                    <p className="text-[9px] text-slate-400 font-sans pt-1 leading-relaxed">
-                      * Ingresa con estos datos predeterminados. Al ingresar, podrás cambiar el correo y la contraseña dentro de la pestaña de Configuración.
-                    </p>
                   </div>
                 </>
               ) : (

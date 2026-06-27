@@ -80,6 +80,7 @@ create table if not exists public.client_boards (
   industry text not null,
   current_month integer not null default 1,
   status_message text not null,
+  access_key text,
   kpis jsonb not null,
   sales_history jsonb not null default '[]'::jsonb,
   leads_history jsonb not null default '[]'::jsonb,
@@ -88,6 +89,9 @@ create table if not exists public.client_boards (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
+
+-- Si ya creaste tu tabla anteriormente, ejecuta esta línea para agregar la columna de claves:
+-- alter table public.client_boards add column if not exists access_key text;
 
 -- 2. Habilitar la seguridad de nivel de fila (RLS) - Opcional
 alter table public.client_boards enable row level security;
@@ -113,6 +117,7 @@ const mapRowToBoard = (row: any): ClientBoard => {
     industry: row.industry,
     currentMonth: row.current_month,
     statusMessage: row.status_message,
+    accessKey: row.access_key || '',
     kpis: row.kpis,
     salesHistory: row.sales_history || [],
     leadsHistory: row.leads_history || [],
@@ -152,6 +157,7 @@ export const saveSupabaseBoard = async (board: ClientBoard): Promise<void> => {
     industry: board.industry,
     current_month: board.currentMonth,
     status_message: board.statusMessage,
+    access_key: board.accessKey || '',
     kpis: board.kpis,
     sales_history: board.salesHistory,
     leads_history: board.leadsHistory,

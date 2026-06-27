@@ -14,6 +14,7 @@ export const DEFAULT_CLIENTS: ClientBoard[] = [
     industry: "Bienes Raíces / Real Estate",
     currentMonth: 3,
     statusMessage: "El embudo de captación está madurando rápido. Las campañas en Meta Ads ya alcanzaron la velocidad de crucero óptima y estamos filtrando leads de alta calidad para tu equipo de ventas.",
+    accessKey: "INM-9021",
     kpis: {
       ventas: {
         label: "Ventas Atribuibles",
@@ -98,6 +99,7 @@ export const DEFAULT_CLIENTS: ClientBoard[] = [
     industry: "Salud y Bienestar / Odontología",
     currentMonth: 6,
     statusMessage: "¡Llegamos al final del ciclo de 6 meses con resultados récord! El sistema de reservas automáticas quedó instalado de forma nativa. Es hora de decidir la continuidad o el traspaso final del control técnico.",
+    accessKey: "ODO-5582",
     kpis: {
       ventas: {
         label: "Facturación del Sistema",

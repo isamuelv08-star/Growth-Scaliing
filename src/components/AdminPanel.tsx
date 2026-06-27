@@ -118,7 +118,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [supaTestMsg, setSupaTestMsg] = useState('');
   const [copiedSQL, setCopiedSQL] = useState(false);
 
-  const [emailInput, setEmailInput] = useState(config.adminEmail || 'consultor@partner.com');
+  const [emailInput, setEmailInput] = useState(() => (config?.adminEmail || 'consultor@partner.com'));
   const [passwordInput, setPasswordInput] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authError, setAuthError] = useState('');
@@ -306,8 +306,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     try {
       if (loginTab === 'admin') {
-        const email = emailInput.trim().toLowerCase();
-        const password = passwordInput;
+        const email = (emailInput || '').trim().toLowerCase();
+        const password = passwordInput || '';
 
         if (!email || !password) {
           setAuthError('Por favor ingresa tanto tu correo como tu contraseña.');
@@ -332,7 +332,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           setAuthError('Credenciales incorrectas para el administrador. Por favor verifique el correo y la contraseña.');
         }
       } else {
-        const inputKey = accessKeyInput.trim();
+        const inputKey = (accessKeyInput || '').trim();
 
         if (!inputKey) {
           setAuthError('Por favor digite su clave única de acceso.');
@@ -340,8 +340,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           return;
         }
 
-        // Check if the key matches any client's access key
-        const matchedClient = clients.find(c => c.accessKey && c.accessKey.trim().toLowerCase() === inputKey.toLowerCase());
+        // Check if the key matches any client's access key safely
+        const matchedClient = clients.find(c => {
+          const key = c.accessKey;
+          if (typeof key !== 'string') return false;
+          return key.trim().toLowerCase() === inputKey.toLowerCase();
+        });
         
         if (matchedClient) {
           setAuthError('');
@@ -353,7 +357,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         }
 
         // Support using admin master password in access key field too (as a helper)
-        const isAdminMasterPassword = (inputKey === config.accessPassword || inputKey === 'growth2026' || inputKey === 'admin');
+        const isAdminMasterPassword = (inputKey === (config?.accessPassword || 'growth2026') || inputKey === 'growth2026' || inputKey === 'admin');
         if (isAdminMasterPassword) {
           setIsAuthenticated(true);
           setAuthError('');
@@ -365,7 +369,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
     } catch (err: any) {
       console.error("Authentication error", err);
-      setAuthError('Error de autenticación desconocido.');
+      setAuthError(`Error de autenticación: ${err?.message || String(err) || 'desconocido'}`);
     } finally {
       setAuthLoading(false);
     }

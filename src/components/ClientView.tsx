@@ -21,7 +21,6 @@ import {
   CheckCircle2, 
   Clock, 
   ArrowRight,
-  Share2,
   Sparkles,
   Compass,
   Megaphone,
@@ -30,8 +29,7 @@ import {
   ChevronRight,
   MessageSquare,
   Award,
-  BookOpen,
-  Download
+  BookOpen
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -44,7 +42,6 @@ interface ClientViewProps {
 
 export const ClientView: React.FC<ClientViewProps> = ({ board, onGoToAdmin, consultantName, consultantAgency }) => {
   const [activeChart, setActiveChart] = useState<'sales' | 'leads'>('sales');
-  const [copiedLink, setCopiedLink] = useState(false);
 
   // Determine icon for categories in timeline
   const getCategoryIcon = (category: string) => {
@@ -75,13 +72,6 @@ export const ClientView: React.FC<ClientViewProps> = ({ board, onGoToAdmin, cons
       default:
         return 'bg-slate-50 text-slate-700 border-slate-200';
     }
-  };
-
-  const copyShareableLink = () => {
-    const shareUrl = `${window.location.origin}${window.location.pathname}#cliente/${board.id}`;
-    navigator.clipboard.writeText(shareUrl);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2000);
   };
 
   // Check if close to Month 6
@@ -162,38 +152,31 @@ export const ClientView: React.FC<ClientViewProps> = ({ board, onGoToAdmin, cons
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 py-6 font-sans antialiased text-slate-800" id={`client-view-${board.id}`}>
       
-      {/* Floating consultor button just for the playground experience */}
-      <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-200 gap-3" id="client-view-top-nav">
-        <button
-          onClick={onGoToAdmin}
-          className="text-xs font-bold text-slate-700 hover:text-slate-900 transition-all flex items-center gap-1.5 bg-slate-50 border border-slate-250 px-4 py-2 rounded-full shadow-xs cursor-pointer active:scale-98"
-          id="btn-goto-admin"
-        >
-          <Sliders className="w-3.5 h-3.5 text-violet-600" />
-          <span>Abrir Consola de Consultor</span>
-        </button>
+      {/* Elegante sección de bienvenida personalizada para el Socio */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-5 border-b border-slate-200/80" id="client-view-welcome-nav">
+        <div className="flex items-center gap-3.5" id="welcome-greetings-container">
+          <div className="p-2.5 bg-violet-50 rounded-2xl border border-violet-100 hidden sm:block shadow-xs" id="welcome-icon-wrapper">
+            <Sparkles className="w-5 h-5 text-violet-600" />
+          </div>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900" id="welcome-title">
+              ¡Hola, <span className="text-violet-600 font-extrabold">{board.ownerName}</span>! 👋
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-500 mt-0.5" id="welcome-subtitle">
+              Te damos la bienvenida a tu portal interactivo de crecimiento y rendimiento estratégico.
+            </p>
+          </div>
+        </div>
 
-        <div className="flex items-center gap-2.5">
-          <span className="hidden md:inline-flex items-center gap-1.5 text-xs text-slate-500 font-mono">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            Enlace Activo Seguro
+        <div className="flex flex-wrap items-center gap-2.5" id="welcome-status-meta">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-50 border border-slate-200 text-slate-600 shadow-2xs font-sans" id="meta-industry-badge">
+            <span className="w-1.5 h-1.5 rounded-full bg-violet-500"></span>
+            {board.industry}
           </span>
-          <button
-            onClick={copyShareableLink}
-            className="text-xs font-bold text-violet-700 hover:text-white transition-all flex items-center gap-1.5 bg-violet-50 hover:bg-violet-600 border border-violet-200 px-4.5 py-2 rounded-full cursor-pointer active:scale-98 shadow-xs"
-            id="btn-copy-link"
-          >
-            <Share2 className="w-3.5 h-3.5 text-violet-600 group-hover:text-white" />
-            <span>{copiedLink ? '¡Enlace Copiado!' : 'Copiar Acceso Directo de Dirección'}</span>
-          </button>
-          <button
-            onClick={() => generatePDFReport(board, consultantName || '', consultantAgency || '')}
-            className="text-xs font-bold text-emerald-750 hover:text-white transition-all flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-600 border border-emerald-200 px-4.5 py-2 rounded-full cursor-pointer active:scale-98 shadow-xs"
-            id="btn-download-pdf"
-          >
-            <Download className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Descargar Reporte PDF</span>
-          </button>
+          <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-emerald-50 border border-emerald-150 text-emerald-800 shadow-2xs font-mono" id="meta-month-badge">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            MES {board.currentMonth} DE 6 ACTIVO
+          </span>
         </div>
       </div>
 

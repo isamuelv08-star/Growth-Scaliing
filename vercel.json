@@ -1,7 +1,11 @@
 {
   "version": 2,
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" },
+    { "source": "/api/generate-creative-image", "destination": "/api/generate-creative-image.ts" },
+    { "source": "/api/generate-strategy", "destination": "/api/generate-strategy.ts" },
+    { "source": "/api/generate-report", "destination": "/api/generate-report.ts" },
+    { "source": "/api/health", "destination": "/api/index.ts" },
+    { "source": "/api", "destination": "/api/index.ts" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

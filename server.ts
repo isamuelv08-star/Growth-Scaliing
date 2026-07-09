@@ -1,6 +1,5 @@
 import express from 'express';
 import path from 'path';
-import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
@@ -495,7 +494,7 @@ app.post('/api/generate-creative-image', async (req, res) => {
     if (openaiApiKey) {
       console.log(`Intentando generación directa de imagen con OpenAI DALL-E 3...`);
       try {
-        const response = await fetch("https://api.openai.com/v1/images/generations", {
+        let response = await fetch("https://api.openai.com/v1/images/generations", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -509,17 +508,53 @@ app.post('/api/generate-creative-image', async (req, res) => {
           })
         });
 
-        if (response.ok) {
-          const data = await response.json();
-          imageUrl = data?.data?.[0]?.url || '';
-          if (imageUrl) {
-            generatorMode = 'openai_dalle';
-            statusMessage = '¡Imagen creada con éxito usando ChatGPT DALL-E 3 directamente!';
-            console.log("¡Imagen generada con éxito con DALL-E 3 directo!");
+        let data;
+        let usedModel = "dall-e-3";
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          const errMsg = errData?.error?.message || "";
+          console.warn("DALL-E 3 directa falló con error:", errMsg);
+          
+          if (
+            errMsg.toLowerCase().includes("dall-e-3") || 
+            errMsg.toLowerCase().includes("does not exist") || 
+            errMsg.toLowerCase().includes("not_found") ||
+            errMsg.toLowerCase().includes("access")
+          ) {
+            console.log("Intentando fallback directa a dall-e-2...");
+            usedModel = "dall-e-2";
+            response = await fetch("https://api.openai.com/v1/images/generations", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${openaiApiKey}`
+              },
+              body: JSON.stringify({
+                model: "dall-e-2",
+                prompt: prompt,
+                n: 1,
+                size: "1024x1024"
+              })
+            });
+
+            if (!response.ok) {
+              const errData2 = await response.json().catch(() => ({}));
+              throw new Error(errData2?.error?.message || `Error HTTP de OpenAI en DALL-E 2: ${response.status}`);
+            }
+            data = await response.json();
+          } else {
+            throw new Error(errMsg || `Error HTTP de OpenAI: ${response.status}`);
           }
         } else {
-          const errData = await response.json().catch(() => ({}));
-          console.error("OpenAI Direct API returned error status:", response.status, errData);
+          data = await response.json();
+        }
+
+        imageUrl = data?.data?.[0]?.url || '';
+        if (imageUrl) {
+          generatorMode = 'openai_dalle';
+          statusMessage = `¡Imagen creada con éxito usando ChatGPT ${usedModel.toUpperCase()} directamente!`;
+          console.log(`¡Imagen generada con éxito con ${usedModel.toUpperCase()} directo!`);
         }
       } catch (err: any) {
         console.error("Fallo la llamada directa a OpenAI DALL-E:", err);
@@ -709,6 +744,7 @@ RESPONDE ÚNICAMENTE CON EL OBJETO JSON LIMPIO.`;
 // Serve frontend assets in production / use Vite dev middleware in development
 const startServer = async () => {
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',

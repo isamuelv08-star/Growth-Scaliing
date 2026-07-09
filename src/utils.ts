@@ -66,7 +66,9 @@ export const compressClientBoard = (board: ClientBoard): string => {
     board.salesHistory.map(h => [h.label, h.value]),
     board.leadsHistory.map(h => [h.label, h.value]),
     board.logEntries.map(l => [l.id, l.date, l.title, l.description, l.category]),
-    board.nextSteps
+    board.nextSteps,
+    board.serviceType || 'partner_prime',
+    board.marketingStrategy || null
   ];
   return safeBtoa(JSON.stringify(compact));
 };
@@ -511,6 +513,8 @@ export const decompressClientBoard = (base64: string): ClientBoard => {
       description: l[3],
       category: l[4]
     })),
-    nextSteps: compact[14]
+    nextSteps: compact[14],
+    serviceType: compact[15] || 'partner_prime',
+    marketingStrategy: compact[16] || null
   };
 };

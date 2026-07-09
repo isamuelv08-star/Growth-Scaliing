@@ -81,17 +81,25 @@ create table if not exists public.client_boards (
   current_month integer not null default 1,
   status_message text not null,
   access_key text,
+  service_type text default 'partner_prime',
+  marketing_strategy jsonb default null,
   kpis jsonb not null,
   sales_history jsonb not null default '[]'::jsonb,
   leads_history jsonb not null default '[]'::jsonb,
   log_entries jsonb not null default '[]'::jsonb,
   next_steps jsonb not null default '[]'::jsonb,
+  roadmap_checklist jsonb default '[]'::jsonb,
+  semaforo text default 'green',
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- Si ya creaste tu tabla anteriormente, ejecuta esta línea para agregar la columna de claves:
+-- Si ya creaste tu tabla anteriormente, ejecuta estas líneas para agregar las nuevas columnas:
 -- alter table public.client_boards add column if not exists access_key text;
+-- alter table public.client_boards add column if not exists service_type text default 'partner_prime';
+-- alter table public.client_boards add column if not exists marketing_strategy jsonb default null;
+-- alter table public.client_boards add column if not exists roadmap_checklist jsonb default '[]'::jsonb;
+-- alter table public.client_boards add column if not exists semaforo text default 'green';
 
 -- 2. Habilitar la seguridad de nivel de fila (RLS) - Opcional
 alter table public.client_boards enable row level security;
@@ -109,6 +117,25 @@ create policy "Permitir inserción y actualización pública"
 
 // Map database row to ClientBoard object
 const mapRowToBoard = (row: any): ClientBoard => {
+  const mStrat = row.marketing_strategy;
+  
+  // Elegant fallback: if columns are missing from the table, fetch embedded properties from marketing_strategy JSONB
+  const accessKey = row.access_key !== undefined && row.access_key !== null
+    ? row.access_key
+    : (mStrat && mStrat._accessKey ? mStrat._accessKey : '');
+
+  const serviceType = row.service_type !== undefined && row.service_type !== null
+    ? row.service_type
+    : (mStrat && mStrat._serviceType ? mStrat._serviceType : 'partner_prime');
+
+  const roadmapChecklist = row.roadmap_checklist !== undefined && row.roadmap_checklist !== null
+    ? row.roadmap_checklist 
+    : (mStrat && mStrat._roadmapChecklist ? mStrat._roadmapChecklist : []);
+
+  const semaforo = row.semaforo !== undefined && row.semaforo !== null
+    ? row.semaforo
+    : (mStrat && mStrat._semaforo ? mStrat._semaforo : 'green');
+
   return {
     id: row.id,
     companyName: row.company_name,
@@ -117,12 +144,16 @@ const mapRowToBoard = (row: any): ClientBoard => {
     industry: row.industry,
     currentMonth: row.current_month,
     statusMessage: row.status_message,
-    accessKey: row.access_key || '',
+    accessKey: accessKey,
     kpis: row.kpis,
     salesHistory: row.sales_history || [],
     leadsHistory: row.leads_history || [],
     logEntries: row.log_entries || [],
     nextSteps: row.next_steps || [],
+    serviceType: serviceType,
+    marketingStrategy: mStrat,
+    semaforo: semaforo,
+    roadmapChecklist: roadmapChecklist,
   };
 };
 
@@ -144,12 +175,43 @@ export const fetchSupabaseBoards = async (): Promise<ClientBoard[]> => {
   return (data || []).map(mapRowToBoard);
 };
 
-// Save/Upsert board
+// In-memory cache for columns detected as unsupported by the database
+const unsupportedColumns = new Set<string>();
+
+// Save/Upsert board with self-healing fallback
 export const saveSupabaseBoard = async (board: ClientBoard): Promise<void> => {
   const supabase = getSupabaseClient();
   if (!supabase) return;
 
-  const payload = {
+  // Clone marketing strategy or create a shell to embed potential missing columns safely
+  let embeddedStrat: any = board.marketingStrategy;
+  if (embeddedStrat) {
+    embeddedStrat = {
+      ...embeddedStrat,
+      _accessKey: board.accessKey || '',
+      _serviceType: board.serviceType || 'partner_prime',
+      _roadmapChecklist: board.roadmapChecklist || [],
+      _semaforo: board.semaforo || 'green'
+    };
+  } else {
+    embeddedStrat = {
+      id: `strat-fallback-${board.id}`,
+      createdAt: new Date().toISOString(),
+      targetAudience: '',
+      coreOffer: '',
+      pillars: [],
+      angles: [],
+      calendar: [],
+      creativeImages: [],
+      reports: [],
+      _accessKey: board.accessKey || '',
+      _serviceType: board.serviceType || 'partner_prime',
+      _roadmapChecklist: board.roadmapChecklist || [],
+      _semaforo: board.semaforo || 'green'
+    };
+  }
+
+  const payload: Record<string, any> = {
     id: board.id,
     company_name: board.companyName,
     owner_name: board.ownerName,
@@ -163,16 +225,85 @@ export const saveSupabaseBoard = async (board: ClientBoard): Promise<void> => {
     leads_history: board.leadsHistory,
     log_entries: board.logEntries,
     next_steps: board.nextSteps,
+    service_type: board.serviceType || 'partner_prime',
+    marketing_strategy: embeddedStrat,
+    roadmap_checklist: board.roadmapChecklist || [],
+    semaforo: board.semaforo || 'green',
     updated_at: new Date().toISOString()
   };
 
-  const { error } = await (supabase
-    .from('client_boards') as any)
-    .upsert(payload, { onConflict: 'id' });
+  // Pre-prune columns we already know are unsupported
+  for (const col of unsupportedColumns) {
+    delete payload[col];
+  }
 
-  if (error) {
-    console.error("Error upserting board in Supabase", error);
-    throw error;
+  let success = false;
+  let attempts = 0;
+  const maxAttempts = 10;
+  let lastError: any = null;
+
+  while (!success && attempts < maxAttempts) {
+    attempts++;
+    const { error } = await (supabase
+      .from('client_boards') as any)
+      .upsert(payload, { onConflict: 'id' });
+
+    if (!error) {
+      success = true;
+      break;
+    }
+
+    lastError = error;
+    const errorMsg = error.message || '';
+    const isMissingColumnError = error.code === '42703' || errorMsg.includes('does not exist') || errorMsg.includes('column');
+
+    if (isMissingColumnError) {
+      let prunedSomething = false;
+
+      // Newer columns that might be missing in some old schemas
+      const optionalCols = [
+        'roadmap_checklist',
+        'semaforo',
+        'marketing_strategy',
+        'service_type',
+        'access_key'
+      ];
+
+      for (const col of optionalCols) {
+        if (payload[col] !== undefined && (errorMsg.includes(col) || errorMsg.includes(col.replace('_', '')))) {
+          console.warn(`Column '${col}' is not supported by your Supabase table schema. Pruning and relying on embedded fallback.`);
+          unsupportedColumns.add(col);
+          delete payload[col];
+          prunedSomething = true;
+          break; // Prune one and retry
+        }
+      }
+
+      // If we got a column error but couldn't parse the column name, prune one by one as fallback
+      if (!prunedSomething) {
+        let pruned = false;
+        for (const col of optionalCols) {
+          if (payload[col] !== undefined) {
+            console.warn(`Presuming column '${col}' is missing. Pruning and retrying...`);
+            unsupportedColumns.add(col);
+            delete payload[col];
+            pruned = true;
+            break;
+          }
+        }
+        if (!pruned) {
+          break; // Nothing left to prune
+        }
+      }
+    } else {
+      // Not a column mismatch error; cannot recover by pruning
+      break;
+    }
+  }
+
+  if (!success) {
+    console.error("Error upserting board in Supabase after self-healing attempts:", lastError);
+    throw lastError || new Error("Failed to save board in Supabase");
   }
 };
 

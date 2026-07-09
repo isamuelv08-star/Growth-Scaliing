@@ -22,6 +22,7 @@ import {
   ChevronLeft,
   ChevronRight,
   UserPlus, 
+  Users,
   Sliders, 
   Compass, 
   CheckCircle2, 
@@ -36,7 +37,14 @@ import {
   Layers,
   Award,
   BookOpen,
-  LogOut
+  LogOut,
+  BarChart3,
+  Video,
+  DollarSign,
+  TrendingUp,
+  Percent,
+  Bell,
+  ArrowUpRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -102,9 +110,24 @@ export default function App() {
 
   // Navigation states: 'welcome' | 'client' | 'admin'
   const [viewMode, setViewMode] = useState<'welcome' | 'client' | 'admin'>('admin');
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+  const [activeAdminTab, setActiveAdminTab] = useState<'home' | 'socios' | 'diagnostic' | 'workspace' | 'settings'>('socios');
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(() => {
+    try {
+      return sessionStorage.getItem('isAdminAuthenticated') === 'true';
+    } catch (_) {
+      return false;
+    }
+  });
   const [isClientViewOnly, setIsClientViewOnly] = useState(false);
+
+  // Sync admin authentication to sessionStorage
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('isAdminAuthenticated', String(isAdminAuthenticated));
+    } catch (_) {}
+  }, [isAdminAuthenticated]);
   const [selectedClientId, setSelectedClientId] = useState<string>('');
+  const [activeClientTab, setActiveClientTab] = useState<'dashboard' | 'strategy' | 'creative'>('dashboard');
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   
   // Collapsible sidebar state
@@ -371,6 +394,11 @@ export default function App() {
 
   const currentClient = clients.find(c => c.id === selectedClientId) || clients[0];
 
+  const handleUpdateSingleClient = (updatedClient: ClientBoard) => {
+    const nextClients = clients.map(c => c.id === updatedClient.id ? updatedClient : c);
+    handleUpdateClientsList(nextClients, true);
+  };
+
   // Manual transition helpers
   const handleSelectClient = (clientId: string) => {
     setSelectedClientId(clientId);
@@ -389,147 +417,372 @@ export default function App() {
     window.location.hash = '';
   };
 
+  // Unified chronological timeline helpers & calculations for Welcome / Gabinete Global
+  const combinedLogs: { log: any; companyName: string; clientId: string }[] = [];
+  clients.forEach(c => {
+    if (Array.isArray(c.logEntries)) {
+      c.logEntries.forEach(log => {
+        combinedLogs.push({
+          log,
+          companyName: c.companyName,
+          clientId: c.id
+        });
+      });
+    }
+  });
+
+  // Sort logs by date descending and take top 5
+  const sortedGlobalLogs = combinedLogs.sort((a, b) => {
+    return new Date(b.log.date).getTime() - new Date(a.log.date).getTime();
+  }).slice(0, 5);
+
+  const getGlobalCategoryIcon = (cat: string) => {
+    switch (cat) {
+      case 'pauta': return <TrendingUp className="w-3.5 h-3.5 text-cyan-600" />;
+      case 'estrategia': return <Award className="w-3.5 h-3.5 text-violet-600" />;
+      case 'contenido': return <Video className="w-3.5 h-3.5 text-amber-600" />;
+      case 'optimizacion': return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />;
+      default: return <Clock className="w-3.5 h-3.5 text-slate-500" />;
+    }
+  };
+
+  const getGlobalCategoryBadgeClass = (cat: string) => {
+    switch (cat) {
+      case 'pauta': return 'bg-cyan-50 text-cyan-700 border-cyan-100';
+      case 'estrategia': return 'bg-violet-50 text-violet-700 border-violet-100';
+      case 'contenido': return 'bg-amber-50 text-amber-700 border-amber-100';
+      case 'optimizacion': return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+      default: return 'bg-slate-50 text-slate-700 border-slate-150';
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-[#fcfcfd] text-slate-800 flex flex-col font-sans relative overflow-hidden bg-liquid-grid" id="app-root-container">
+    <div className="h-screen w-screen bg-[#fcfcfd] text-slate-800 flex flex-row font-sans relative overflow-hidden bg-liquid-grid" id="app-root-container">
       
       {/* Dynamic Background Glowing Mesh */}
       <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[50%] rounded-full opacity-40 blur-[140px] pointer-events-none ambient-light-violet" />
       <div className="absolute bottom-[10%] right-[-15%] w-[55%] h-[55%] rounded-full opacity-30 blur-[130px] pointer-events-none ambient-light-emerald" />
 
-      {/* Global Header */}
-      {!(viewMode === 'admin' && !isAdminAuthenticated) && (
-        <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200/80" id="global-header-bar">
-        <div className="max-w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      {/* LEFT GLOBAL SIDEBAR */}
+      {!(viewMode === 'admin' && !isAdminAuthenticated) && sidebarOpen && (
+        <aside className="w-64 bg-white border-r border-slate-200/80 flex flex-col shrink-0 h-full select-none shadow-xs" id="global-left-sidebar">
           
-          <div className="flex items-center gap-3">
-            {/* Sidebar Toggle Button for mobile and desktop */}
-            {viewMode !== 'welcome' && (
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="p-2 mr-1 rounded-xl bg-slate-50 border border-slate-200/60 text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer active:scale-95 flex items-center justify-center"
-                title="Contraer/Expandir Panel Lateral"
-              >
-                <Menu className="w-5 h-5 text-violet-600" />
-              </button>
-            )}
-
-            {/* Logo Brand heading */}
-            <div 
-              onClick={handleToMainPage}
-              className="flex items-center gap-2.5 cursor-pointer select-none group"
-              id="brand-logo-container"
-            >
-              <div className="bg-violet-600 rounded-xl p-2 text-white group-hover:scale-105 transition-all duration-300 shadow-sm">
-                <Briefcase className="w-4 h-4 font-bold" />
-              </div>
-              <div className="flex flex-col">
-                <span className="font-display font-bold text-sm tracking-tight text-slate-900 dark:text-white">
-                  Growth Scaling
-                </span>
-                <span className="text-[9px] text-violet-600 dark:text-violet-400 font-mono font-black tracking-widest -mt-0.5">SYSTEME PARTNER PORTAL</span>
-              </div>
+          {/* Persistent Branding Header */}
+          <div 
+            onClick={handleToMainPage}
+            className="p-5 border-b border-slate-100 flex items-center gap-3 cursor-pointer hover:bg-slate-50/50 transition-colors select-none shrink-0"
+            id="sidebar-brand-logo"
+          >
+            <div className="bg-violet-600 rounded-xl p-2 text-white shadow-sm shrink-0">
+              <Briefcase className="w-4 h-4 font-bold" />
+            </div>
+            <div className="flex flex-col">
+              <span className="font-display font-extrabold text-sm tracking-tight text-slate-900 leading-none">
+                Growth Scaling
+              </span>
+              <span className="text-[9px] text-violet-600 font-mono font-black tracking-widest mt-1">SYSTEM PARTNER</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-3" id="header-right-actions">
-            
-            {/* If client is logged in with unique key, show simple branded info and Logout button */}
-            {isClientViewOnly ? (
-              <>
-                <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-full select-none">
-                  <Building2 className="w-3.5 h-3.5 text-violet-600" />
-                  <span className="max-w-28 sm:max-w-44 truncate">{currentClient.companyName}</span>
+          {viewMode === 'client' && selectedClientId ? (
+            <>
+              {/* Partner-Specific Info Sub-segment */}
+              <div className="p-4 bg-violet-50/40 border-b border-slate-100/60 flex items-center gap-3 shrink-0">
+                <div className="bg-white border border-violet-150 rounded-xl p-2 text-violet-600 shadow-3xs shrink-0">
+                  <Building2 className="w-4 h-4" />
                 </div>
-                
+                <div className="flex flex-col min-w-0">
+                  <span className="font-display font-black text-xs text-slate-800 truncate" title={currentClient?.companyName}>
+                    {currentClient?.companyName}
+                  </span>
+                  <span className="text-[9px] text-slate-500 font-mono mt-0.5">
+                    Mes {currentClient?.currentMonth} de 6
+                  </span>
+                </div>
+              </div>
+
+              {/* Client Navigation Options */}
+              <div className="flex-1 p-4 space-y-1.5 overflow-y-auto">
+                <span className="px-3 text-[9px] font-mono font-bold tracking-widest text-slate-400 uppercase block mb-2">MENÚ DEL SOCIO</span>
+
+                {[
+                  { id: 'dashboard', label: 'Dashboard General', icon: <BarChart3 className="w-4 h-4" /> },
+                  { id: 'strategy', label: 'Estrategia', icon: <Briefcase className="w-4 h-4" /> },
+                  { id: 'creative', label: 'Estudio Creativo', icon: <Video className="w-4 h-4" /> },
+                ].map((tab) => {
+                  const isSelected = activeClientTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveClientTab(tab.id as any)}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
+                        isSelected
+                          ? 'bg-violet-600 text-white shadow-sm'
+                          : 'text-slate-650 hover:text-slate-900 hover:bg-slate-50'
+                      }`}
+                    >
+                      {tab.icon}
+                      <span>{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Bottom Stats & Admin link */}
+              <div className="p-4 border-t border-slate-100 bg-slate-50/50 space-y-2.5 shrink-0">
+                <div className="bg-slate-100/60 rounded-xl p-3 text-center border border-slate-200/50">
+                  <span className="text-[8px] font-mono text-slate-400 font-bold block uppercase tracking-wider">Progreso del Ciclo</span>
+                  <span className="text-xs font-black text-violet-700 font-mono block mt-0.5">
+                    {currentClient ? Math.round((currentClient.currentMonth / 6) * 100) : 0}%
+                  </span>
+                  <div className="w-full h-1 bg-slate-200 rounded-full overflow-hidden mt-1.5">
+                    <div className="h-full bg-violet-600" style={{ width: `${currentClient ? (currentClient.currentMonth / 6) * 100 : 0}%` }} />
+                  </div>
+                </div>
+
+                {/* Removed consultant console button for client view */}
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Navigation Options */}
+              <div className="flex-1 p-4 space-y-1.5 overflow-y-auto">
+                <span className="px-3 text-[9px] font-mono font-bold tracking-widest text-slate-400 uppercase block mb-2">MENÚ PRINCIPAL</span>
+
                 <button
-                  type="button"
                   onClick={() => {
-                    setIsClientViewOnly(false);
-                    setViewMode('admin');
-                    setIsAdminAuthenticated(false);
+                    setViewMode('welcome');
                     window.location.hash = '';
                   }}
-                  className="bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold px-4 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-2 active:scale-95"
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
+                    viewMode === 'welcome'
+                      ? 'bg-violet-600 text-white shadow-sm'
+                      : 'text-slate-650 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
                 >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span>Cerrar Sesión</span>
+                  <Layout className="w-4 h-4" />
+                  <span>Gabinete Global</span>
                 </button>
-              </>
-            ) : (
-              <>
-                {/* Beautiful Client Selector Dropdown on Header */}
-                {viewMode === 'client' && clients.length > 0 && (
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setIsClientDropdownOpen(!isClientDropdownOpen)}
-                      className="bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-bold px-4 py-2 rounded-full inline-flex items-center gap-2 transition-all cursor-pointer"
-                      id="header-client-selector-trigger"
-                    >
+
+                <button
+                  onClick={() => {
+                    setViewMode('admin');
+                    setActiveAdminTab('socios');
+                    window.location.hash = '#admin';
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
+                    viewMode === 'admin' && activeAdminTab === 'socios'
+                      ? 'bg-violet-600 text-white shadow-sm'
+                      : 'text-slate-650 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  <Users className="w-4 h-4" />
+                  <span>Directorio de Socios</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setViewMode('admin');
+                    setActiveAdminTab('diagnostic');
+                    window.location.hash = '#admin';
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
+                    viewMode === 'admin' && activeAdminTab === 'diagnostic'
+                      ? 'bg-violet-600 text-white shadow-sm'
+                      : 'text-slate-650 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Diagnósticos del Socio</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setViewMode('admin');
+                    setActiveAdminTab('workspace');
+                    window.location.hash = '#admin';
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
+                    viewMode === 'admin' && activeAdminTab === 'workspace'
+                      ? 'bg-violet-600 text-white shadow-sm'
+                      : 'text-slate-650 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  <Sliders className="w-4 h-4" />
+                  <span>Editor Técnico</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setViewMode('admin');
+                    setActiveAdminTab('settings');
+                    window.location.hash = '#admin';
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
+                    viewMode === 'admin' && activeAdminTab === 'settings'
+                      ? 'bg-violet-600 text-white shadow-sm'
+                      : 'text-slate-650 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  <Settings className="w-4 h-4" />
+                  <span>Configuración de la App</span>
+                </button>
+              </div>
+
+              {/* Consultant Profile Details at the bottom */}
+              <div className="p-4 border-t border-slate-100 bg-slate-50/50 shrink-0">
+                <div className="flex items-center gap-2 px-2 py-1.5">
+                  <div className="w-8 h-8 rounded-full bg-violet-100 border border-violet-200 flex items-center justify-center font-bold text-violet-750 text-xs shrink-0 shadow-3xs">
+                    GP
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-xs font-bold text-slate-900 truncate">Consultor Grow</span>
+                    <span className="text-[9px] text-slate-500 truncate">{config.consultantAgency}</span>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </aside>
+      )}
+
+      {/* RIGHT MAIN CONTAINER */}
+      <div className="flex-grow flex flex-col h-full min-w-0 overflow-hidden" id="right-main-container">
+        
+        {/* Global Header */}
+        {!(viewMode === 'admin' && !isAdminAuthenticated) && (
+          <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200/80 shrink-0" id="global-header-bar">
+            <div className="max-w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+              
+              <div className="flex items-center gap-3">
+                {/* Sidebar Toggle Button for mobile and desktop */}
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(!sidebarOpen)}
+                  className="p-2 mr-1 rounded-xl bg-slate-50 border border-slate-200/60 text-slate-650 hover:text-slate-950 hover:bg-slate-100 transition-all cursor-pointer active:scale-95 flex items-center justify-center"
+                  title="Contraer/Expandir Panel Lateral"
+                >
+                  <Menu className="w-5 h-5 text-violet-600" />
+                </button>
+
+                {/* Brand logo if sidebar is closed */}
+                {!sidebarOpen && (
+                  <div 
+                    onClick={handleToMainPage}
+                    className="flex items-center gap-2 cursor-pointer select-none group mr-2"
+                  >
+                    <div className="bg-violet-600 rounded-lg p-1.5 text-white shadow-xs">
+                      <Briefcase className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="font-display font-bold text-xs tracking-tight text-slate-900">
+                      Growth Scaling
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3" id="header-right-actions">
+                
+                {/* If client is logged in with unique key, show simple branded info and Logout button */}
+                {isClientViewOnly ? (
+                  <>
+                    <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-full select-none">
                       <Building2 className="w-3.5 h-3.5 text-violet-600" />
                       <span className="max-w-28 sm:max-w-44 truncate">{currentClient.companyName}</span>
-                      <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${isClientDropdownOpen ? 'rotate-180' : ''}`} />
+                    </div>
+                    
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsClientViewOnly(false);
+                        setViewMode('admin');
+                        setIsAdminAuthenticated(false);
+                        window.location.hash = '';
+                      }}
+                      className="bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold px-4 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-2 active:scale-95"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Cerrar Sesión</span>
                     </button>
-
-                    {isClientDropdownOpen && (
-                      <div className="absolute right-0 mt-2 w-64 bg-white border border-slate-200 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-                        <p className="px-4 py-1.5 font-mono text-[9px] text-violet-600 font-extrabold uppercase tracking-widest">CAMBIAR SOCIO DEMO</p>
-                        {clients.map(c => (
-                          <button
-                            key={c.id}
-                            onClick={() => handleSelectClient(c.id)}
-                            className={`w-full text-left font-sans text-xs px-4 py-2.5 hover:bg-slate-50 transition-colors block ${
-                              c.id === selectedClientId ? 'text-violet-600 font-black bg-violet-50/80' : 'text-slate-750'
-                            }`}
-                          >
-                            <div className="flex justify-between items-center">
-                              <span className="truncate pr-2">{c.companyName}</span>
-                              <span className="text-[9px] font-mono font-semibold text-slate-500 shrink-0">Mes {c.currentMonth}/6</span>
-                            </div>
-                          </button>
-                        ))}
-                        <hr className="border-slate-100 my-1.5" />
+                  </>
+                ) : (
+                  <>
+                    {/* Beautiful Client Selector Dropdown on Header */}
+                    {viewMode === 'client' && clients.length > 0 && (
+                      <div className="relative">
                         <button
-                          onClick={handleAdminModeLink}
-                          className="w-full text-left font-bold text-violet-600 text-xs px-4 py-2 hover:bg-slate-50 block flex items-center gap-2"
+                          type="button"
+                          onClick={() => setIsClientDropdownOpen(!isClientDropdownOpen)}
+                          className="bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-bold px-4 py-2 rounded-full inline-flex items-center gap-2 transition-all cursor-pointer"
+                          id="header-client-selector-trigger"
                         >
-                          <Sliders className="w-3.5 h-3.5" />
-                          <span>Ir al Panel Consultor</span>
+                          <Building2 className="w-3.5 h-3.5 text-violet-600" />
+                          <span className="max-w-28 sm:max-w-44 truncate">{currentClient.companyName}</span>
+                          <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${isClientDropdownOpen ? 'rotate-180' : ''}`} />
                         </button>
+
+                        {isClientDropdownOpen && (
+                          <div className="absolute right-0 mt-2 w-64 bg-white border border-slate-200 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                            <p className="px-4 py-1.5 font-mono text-[9px] text-violet-600 font-extrabold uppercase tracking-widest">CAMBIAR SOCIO DEMO</p>
+                            {clients.map(c => (
+                              <button
+                                key={c.id}
+                                onClick={() => handleSelectClient(c.id)}
+                                className={`w-full text-left font-sans text-xs px-4 py-2.5 hover:bg-slate-50 transition-colors block ${
+                                  c.id === selectedClientId ? 'text-violet-600 font-black bg-violet-50/80' : 'text-slate-750'
+                                }`}
+                              >
+                                <div className="flex justify-between items-center">
+                                  <span className="truncate pr-2">{c.companyName}</span>
+                                  <span className="text-[9px] font-mono font-semibold text-slate-500 shrink-0">Mes {c.currentMonth}/6</span>
+                                </div>
+                              </button>
+                            ))}
+                            <hr className="border-slate-100 my-1.5" />
+                            <button
+                              onClick={handleAdminModeLink}
+                              className="w-full text-left font-bold text-violet-600 text-xs px-4 py-2 hover:bg-slate-50 block flex items-center gap-2"
+                            >
+                              <Sliders className="w-3.5 h-3.5" />
+                              <span>Ir al Panel Consultor</span>
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
-                  </div>
+                  </>
                 )}
 
                 {/* Quick action to toggle mode directly on top */}
-                <div className="hidden md:flex bg-slate-100/85 p-1 rounded-xl border border-slate-200 items-center">
-                  <button
-                    onClick={() => {
-                      if (clients.length > 0) {
-                        if (!selectedClientId) handleSelectClient(clients[0].id);
-                        setViewMode('client');
-                      } else {
-                        setViewMode('welcome');
-                      }
-                    }}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                      viewMode === 'client' ? 'bg-white text-slate-900 border border-slate-200/60 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <UserCheck className="w-3.5 h-3.5 text-violet-600" />
-                    <span>Modo Cliente</span>
-                  </button>
-                  <button
-                    onClick={handleAdminModeLink}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                      viewMode === 'admin' ? 'bg-white text-slate-900 border border-slate-200/60 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <Sliders className="w-3.5 h-3.5 text-violet-600" />
-                    <span>Modo Consultor</span>
-                  </button>
-                </div>
+                {!isClientViewOnly && (
+                  <div className="hidden md:flex bg-slate-100/85 p-1 rounded-xl border border-slate-200 items-center">
+                    <button
+                      onClick={() => {
+                        if (clients.length > 0) {
+                          if (!selectedClientId) handleSelectClient(clients[0].id);
+                          setViewMode('client');
+                        } else {
+                          setViewMode('welcome');
+                        }
+                      }}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                        viewMode === 'client' ? 'bg-white text-slate-900 border border-slate-200/60 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      <UserCheck className="w-3.5 h-3.5 text-violet-600" />
+                      <span>Modo Cliente</span>
+                    </button>
+                    <button
+                      onClick={handleAdminModeLink}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                        viewMode === 'admin' ? 'bg-white text-slate-900 border border-slate-200/60 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      <Sliders className="w-3.5 h-3.5 text-violet-600" />
+                      <span>Modo Consultor</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Config Button (Panel admin link) fallback */}
                 {viewMode === 'welcome' && (
@@ -542,226 +795,9 @@ export default function App() {
                     <Settings className="w-4 h-4" />
                   </button>
                 )}
-              </>
-            )}
-
-          </div>
-        </div>
-      </header>
-      )}
-
-      {/* Main Container Workspace */}
-      <div className="flex-grow flex flex-row overflow-hidden relative" id="main-content-flow">
-        
-        {/* COLLAPSIBLE PREMIUM SIDEBAR PANEL */}
-        {viewMode !== 'welcome' && !(viewMode === 'admin' && !isAdminAuthenticated) && (
-          <AnimatePresence initial={false}>
-            {sidebarOpen && (
-              <motion.aside
-                initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 330, opacity: 1 }}
-                exit={{ width: 0, opacity: 0 }}
-                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                className="hidden lg:flex flex-col bg-white border-r border-slate-200 shrink-0 h-full overflow-y-auto overflow-x-hidden z-10 shadow-xs"
-                id="collapsible-premium-sidebar"
-              >
-                <div className="p-6 space-y-6 w-[330px]">
-                  
-                  {/* Sliding Toggle switch ("un boton mas bonito") */}
-                  {!isClientViewOnly && (
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-violet-600 font-mono leading-none flex items-center gap-1">
-                        <Sparkles className="w-3 h-3 text-violet-500" />
-                        <span>Panel De Control</span>
-                      </label>
-                      <div className="relative bg-slate-150 border border-slate-200/80 rounded-2xl p-1 flex w-full">
-                        <button 
-                          onClick={() => {
-                            if (clients.length > 0) {
-                              if (!selectedClientId) setSelectedClientId(clients[0].id);
-                              setViewMode('client');
-                              window.location.hash = `#cliente/${selectedClientId || clients[0].id}`;
-                            } else {
-                              setViewMode('welcome');
-                            }
-                          }}
-                          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all relative ${
-                            viewMode === 'client' 
-                              ? 'text-white' 
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          {viewMode === 'client' && (
-                            <motion.div 
-                              layoutId="sidebar-view-pill" 
-                              className="absolute inset-0 bg-violet-600 rounded-xl z-0" 
-                            />
-                          )}
-                          <span className="relative z-10 flex items-center gap-1.5">
-                            <UserCheck className="w-3.5 h-3.5" />
-                            Vista Cliente
-                          </span>
-                        </button>
-                        <button 
-                          onClick={handleAdminModeLink}
-                          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all relative ${
-                            viewMode === 'admin' 
-                              ? 'text-white' 
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          {viewMode === 'admin' && (
-                            <motion.div 
-                              layoutId="sidebar-view-pill" 
-                              className="absolute inset-0 bg-violet-600 rounded-xl z-0" 
-                            />
-                          )}
-                          <span className="relative z-10 flex items-center gap-1.5">
-                            <Sliders className="w-3.5 h-3.5" />
-                            Consultor
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Account detail ("Nombre de la empresa configuración etc.") */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3 shadow-xs relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-3 opacity-[0.03] pointer-events-none text-slate-800">
-                      <Building2 className="w-12 h-12" />
-                    </div>
-                    
-                    <div>
-                      <span className="text-[9px] font-mono font-extrabold text-violet-700 bg-violet-100/60 px-2.5 py-0.5 rounded-md uppercase tracking-wider border border-violet-200">
-                        {currentClient.industry}
-                      </span>
-                      <h4 className="text-sm font-extrabold text-slate-950 mt-1.5 tracking-tight font-display line-clamp-1">
-                        {currentClient.companyName}
-                      </h4>
-                    </div>
-
-                    <div className="border-t border-slate-200/80 pt-2.5 space-y-1.5 text-xs text-slate-550">
-                      <div className="flex justify-between">
-                        <span>Dueño:</span>
-                        <strong className="text-slate-850 font-bold">{currentClient.ownerName}</strong>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Socio Growth:</span>
-                        <span className="text-violet-600 font-bold">Consorcio Grow Partner</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Fecha de Inicio:</span>
-                        <span className="text-slate-700 font-mono text-[11px]">{currentClient.startDate}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Hash Token ID:</span>
-                        <span className="text-violet-700 font-mono text-[10px] bg-violet-50 border border-violet-100 px-1 py-0.5 rounded">#cl-{currentClient.id}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* "Paso a paso todo el proceso" checklist dropdown/accordion list */}
-                  <div className="space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-[#8b5cf6] font-mono">Plan Paso a Paso (Ciclo)</span>
-                      <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">Mes {currentClient.currentMonth} activo</span>
-                    </div>
-
-                    <p className="text-[11px] text-slate-500 leading-relaxed font-sans mt-1">
-                      Visualiza cronológicamente la madurez técnica táctica. Haz clic para expandir y aprender más:
-                    </p>
-
-                    <div className="space-y-1.5" id="sidebar-step-by-step">
-                      {CYCLIC_STEPS.map((step) => {
-                        const isCompleted = step.num < currentClient.currentMonth;
-                        const isActive = step.num === currentClient.currentMonth;
-                        const isExpanded = activeStepInfo === step.num;
-
-                        return (
-                          <div 
-                            key={step.num}
-                            className={`border rounded-xl transition-all overflow-hidden ${
-                              isActive 
-                                ? 'bg-violet-50/40 border-violet-300 shadow-xs' 
-                                : isCompleted 
-                                  ? 'bg-emerald-50/15 border-emerald-200'
-                                  : 'bg-transparent border-slate-200 opacity-55'
-                            }`}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => setActiveStepInfo(isExpanded ? null : step.num)}
-                              className="w-full flex items-center justify-between p-3 text-left transition-colors hover:bg-slate-50"
-                            >
-                              <div className="flex items-center gap-2.5">
-                                <div className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 ${
-                                  isCompleted 
-                                    ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' 
-                                    : isActive 
-                                      ? 'bg-violet-600 text-white' 
-                                      : 'bg-slate-100 text-slate-500 border border-slate-200'
-                                }`}>
-                                  {isCompleted ? '✓' : step.num}
-                                </div>
-                                <span className={`text-[11.5px] font-bold tracking-tight leading-tight ${
-                                  isActive ? 'text-slate-900 font-bold' : 'text-slate-700'
-                                }`}>
-                                  {step.name}
-                                </span>
-                              </div>
-                              <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
-                            </button>
-
-                            {/* Collapsible Content */}
-                            <AnimatePresence initial={false}>
-                              {isExpanded && (
-                                <motion.div
-                                  initial={{ height: 0 }}
-                                  animate={{ height: 'auto' }}
-                                  exit={{ height: 0 }}
-                                  className="overflow-hidden"
-                                >
-                                  <div className="px-3 pb-3 pt-0.5 border-t border-slate-200 text-[11.5px] text-slate-500 leading-relaxed bg-slate-50/50">
-                                    <p className="font-sans text-slate-650">{step.desc}</p>
-                                    <div className="mt-2 flex items-center gap-1.5 text-[9px] font-mono uppercase bg-slate-100 border border-slate-200/50 p-1.5 rounded text-slate-600">
-                                      <Clock className="w-3 h-3 text-violet-500" />
-                                      <span>Semanas {(step.num-1)*4 + 1} a {step.num*4}</span>
-                                    </div>
-                                  </div>
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Switch direct clicker Accounts List */}
-                  <div className="pt-2 border-t border-slate-200 space-y-2">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#8b5cf6] font-mono">Directorio de Cuentas</span>
-                    <div className="space-y-1">
-                      {clients.map(c => (
-                        <button
-                          key={c.id}
-                          onClick={() => handleSelectClient(c.id)}
-                          className={`w-full text-left text-xs px-2.5 py-1.5 rounded-lg transition-all flex items-center justify-between ${
-                            c.id === selectedClientId 
-                              ? 'bg-violet-50 text-violet-750 font-bold border border-violet-200' 
-                              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                          }`}
-                        >
-                          <span className="truncate max-w-[180px]">{c.companyName}</span>
-                          <span className="text-[9px] font-mono opacity-80 font-semibold bg-slate-100 border border-slate-200 px-1 py-0.5 rounded text-slate-705">M{c.currentMonth}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                </div>
-              </motion.aside>
-            )}
-          </AnimatePresence>
+              </div>
+            </div>
+          </header>
         )}
 
         {/* Content Panel Area */}
@@ -775,128 +811,413 @@ export default function App() {
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -15 }}
-                className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-10"
+                className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 space-y-8"
                 id="view-welcome"
               >
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                {/* 1. BRAND HERO HEADER & FUSED GLOBAL STATS (Gabinete Global Integration) */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs relative overflow-hidden">
+                  <div className="absolute top-[-30%] right-[-20%] w-96 h-96 rounded-full opacity-20 blur-3xl ambient-light-violet pointer-events-none" />
                   
-                  {/* Left Side: Brand presentation and quick links */}
-                  <div className="lg:col-span-5 space-y-6">
-                    <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm relative overflow-hidden">
-                      <div className="absolute top-[-30%] right-[-20%] w-72 h-72 rounded-full opacity-30 blur-2xl ambient-light-violet pointer-events-none" />
-                      
-                      <div className="inline-flex bg-violet-50 text-violet-600 p-3 rounded-2xl mb-6 border border-violet-100">
-                        <Compass className="w-8 h-8 text-violet-600" />
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                    <div className="space-y-2 max-w-2xl">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono font-bold tracking-widest text-violet-600 bg-violet-50 border border-violet-150 px-2.5 py-1 rounded-md uppercase">
+                          GABINETE GLOBAL DE CRECIMIENTO
+                        </span>
+                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="text-[9px] font-mono font-bold text-slate-400 uppercase">Sincronizado</span>
                       </div>
-                      
-                      <h1 className="text-3xl font-bold font-display tracking-tight text-slate-900 dark:text-white leading-tight">
-                        Growth Scaling
+                      <h1 className="text-2xl sm:text-3xl font-extrabold font-display tracking-tight text-slate-900 leading-tight">
+                        Dashboard General
                       </h1>
-                      <p className="text-slate-600 dark:text-slate-300 text-sm mt-3 leading-relaxed font-sans">
-                        Systeme Partner Portal: La interfaz y motor definitivo de growth marketing certificado. Exclusivo para directores y tomadores de decisiones de alto impacto. Visualiza el retorno de la pauta publicitaria (ROAS), leads de valor y el progreso de tus tácticas comerciales en tiempo real.
+                      <p className="text-slate-500 text-xs sm:text-sm leading-relaxed font-sans">
+                        ¡Bienvenido Samuel a tu centro de mando! Revisa lo que debes hacer hoy para mantener la pauta activa, monitorear los semáforos de entregables y asegurar el crecimiento exponencial de todos tus socios comerciales en tiempo real.
                       </p>
-
-                      <div className="mt-8 space-y-3">
-                        <div className="flex items-start gap-3">
-                          <div className="bg-emerald-50 text-emerald-700 p-1.5 rounded-full shrink-0 border border-emerald-100">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                          </div>
-                          <p className="text-xs text-slate-600">
-                            <strong className="text-slate-900">Métricas de impacto de negocio:</strong> Nos enfocamos exclusivamente en retorno de inversión (ROAS), costo por adquisición (CAC) y prospectos calificados.
-                          </p>
-                        </div>
-                        <div className="flex items-start gap-3">
-                          <div className="bg-emerald-50 text-emerald-700 p-1.5 rounded-full shrink-0 border border-emerald-100">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          </div>
-                          <p className="text-xs text-slate-600">
-                            <strong className="text-slate-900">Ciclo estratégico de 6 meses:</strong> Monitoreamos y reportamos la bitácora técnica de pauta todos los meses de manera transparente.
-                          </p>
-                        </div>
-                      </div>
-
-                      <hr className="border-slate-100 my-6" />
-
-                      <div className="flex flex-col gap-3" id="welcome-options">
-                        {/* Premium Switch Switcher Mode Switch */}
-                        <button
-                          onClick={handleAdminModeLink}
-                          className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3.5 px-4 rounded-2xl text-center text-xs transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer active:scale-98"
-                          id="welcome-btn-admin"
-                        >
-                          <Sliders className="w-4 h-4 text-emerald-300" />
-                          <span>Abrir Consola de Consultor</span>
-                        </button>
-                        <p className="text-[10px] text-center text-slate-400 font-mono">
-                          ACCESO CERTIFICADO: CONTRATANTE & CONSULTOR DE CRECIMIENTO
-                        </p>
-                      </div>
                     </div>
-                    
-                    {/* Client confidence alert */}
-                    <div className="bg-slate-50 text-slate-705 p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden">
-                      <div className="absolute top-0 right-0 p-4 opacity-[0.02] pointer-events-none">
-                        <Building2 className="w-24 h-24 text-slate-800" />
-                      </div>
-                      <span className="text-[9px] font-mono font-bold tracking-widest text-[#8b5cf6] uppercase">PORTAL CIFRADO</span>
-                      <h3 className="font-extrabold text-slate-900 text-sm font-display mt-1">Acceso Directo Unificado</h3>
-                      <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-                        Cada cliente recibe un enlace directo seguro que encripta la URL con un identificador único, evitando el uso de contraseñas complejas. Selecciona un demo de la derecha para simular la experiencia.
-                      </p>
+
+                    <div className="flex flex-wrap gap-2 shrink-0">
+                      {/* Removed Consola Consultor button as requested */}
                     </div>
                   </div>
 
-                  {/* Right Side: Grid of Client Boards */}
-                  <div className="lg:col-span-7 space-y-4">
-                    <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm">
-                      <div className="flex items-center justify-between mb-4">
-                        <span className="text-xs font-mono font-bold tracking-wider text-slate-500 uppercase">
-                          Socio Estratégico · Directorio de Cuentas Demo
-                        </span>
-                        <span className="text-xs bg-violet-50 text-violet-600 border border-violet-100 px-2.5 py-1 rounded-full font-bold">
-                          {clients.length} Activos
-                        </span>
+                  {/* 4-Column Executive Metrics Fused Grid */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-8 border-t border-slate-100 pt-6">
+                    <div className="bg-slate-50/70 border border-slate-150 p-4 rounded-2xl">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] text-slate-400 font-mono block">SOCIOS ACTIVOS</span>
+                        <Users className="w-4 h-4 text-violet-500" />
                       </div>
+                      <span className="text-xl sm:text-2xl font-black text-slate-900 font-mono block mt-1">
+                        {clients.length}
+                      </span>
+                      <span className="text-[9px] text-slate-500">Cuentas bajo pauta</span>
+                    </div>
 
-                      <p className="text-xs text-slate-500 mb-6 font-sans">
-                        Haz clic en cualquiera de las siguientes empresas configuradas por el consultor para ingresar al panel estratégico a pantalla completa:
-                      </p>
+                    <div className="bg-slate-50/70 border border-slate-150 p-4 rounded-2xl">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] text-slate-400 font-mono block">INVERSIÓN TOTAL</span>
+                        <DollarSign className="w-4 h-4 text-violet-500" />
+                      </div>
+                      <span className="text-xl sm:text-2xl font-black text-slate-900 font-mono block mt-1">
+                        ${clients.reduce((acc, c) => acc + (c.kpis?.adSpend || 0), 0).toLocaleString()} USD
+                      </span>
+                      <span className="text-[9px] text-slate-500">Presupuesto mensual</span>
+                    </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4" id="welcome-clients-list">
-                        {clients.map((client) => (
-                          <button
-                            key={client.id}
-                            type="button"
-                            onClick={() => handleSelectClient(client.id)}
-                            className="w-full text-left border border-slate-200 bg-slate-50/50 hover:border-violet-300 hover:bg-slate-50 p-5 rounded-2xl transition-all cursor-pointer flex flex-col justify-between h-44 group relative overflow-hidden"
-                          >
-                            <div className="absolute top-0 right-0 p-4 opacity-[0.01] group-hover:scale-110 group-hover:opacity-[0.02] transition-transform duration-300">
-                              <Building2 className="w-20 h-20 text-slate-900" />
-                            </div>
-                            
-                            <div>
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-[9px] font-bold text-violet-700 bg-violet-50 px-2.5 py-0.5 rounded-md uppercase tracking-wider border border-violet-100">
-                                  {client.industry}
-                                </span>
-                                <span className="text-[10px] text-slate-500 font-semibold font-mono">Ciclo {client.currentMonth}/6</span>
-                              </div>
-                              <h3 className="font-bold text-base text-slate-900 font-display line-clamp-1 group-hover:text-violet-600 transition-colors">
-                                {client.companyName}
-                              </h3>
-                            </div>
+                    <div className="bg-slate-50/70 border border-slate-150 p-4 rounded-2xl">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] text-slate-400 font-mono block">LEADS CAPTADOS</span>
+                        <TrendingUp className="w-4 h-4 text-violet-500" />
+                      </div>
+                      <span className="text-xl sm:text-2xl font-black text-slate-900 font-mono block mt-1">
+                        {clients.reduce((acc, c) => acc + (c.kpis?.leadsGenerated || 0), 0).toLocaleString()}
+                      </span>
+                      <span className="text-[9px] text-slate-500">Prospectos de valor</span>
+                    </div>
 
-                            <div className="w-full flex items-center justify-between mt-4 border-t border-slate-200 pt-3">
-                              <span className="text-xs text-slate-500">
-                                Socio: <strong className="text-slate-800 font-semibold">{client.ownerName}</strong>
+                    <div className="bg-slate-50/70 border border-slate-150 p-4 rounded-2xl">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] text-slate-400 font-mono block font-bold">RETORNO (ROAS) MEDIO</span>
+                        <Percent className="w-4 h-4 text-emerald-500" />
+                      </div>
+                      <span className="text-xl sm:text-2xl font-black text-emerald-600 font-mono block mt-1">
+                        {(clients.reduce((acc, c) => acc + (c.kpis?.actualROAS || 0), 0) / (clients.length || 1)).toFixed(1)}x
+                      </span>
+                      <span className="text-[9px] text-slate-500">Promedio de campañas</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. MAIN WORKSPACE: 3-COLUMN UNIFIED CONTROL & MONITORING CENTER */}
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
+                  
+                  {/* Left Column: Semantic Notifications / SEMÁFORO DE ALERTAS DE OPERACIONES */}
+                  <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                      <div className="flex items-center gap-2">
+                        <Bell className="w-4 h-4 text-violet-600" />
+                        <h4 className="text-xs font-bold uppercase tracking-widest text-slate-500 font-mono">Alertas del Semáforo</h4>
+                      </div>
+                      <span className="text-[8px] font-mono font-bold bg-rose-50 text-rose-700 px-2 py-0.5 rounded border border-rose-100">
+                        HOY
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-slate-500 font-sans">
+                      Agenda operativa unificada. Abre tu portal por la mañana y revisa qué videos o posts requieren atención hoy según el semáforo de tus socios:
+                    </p>
+
+                    <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
+                      {clients.flatMap((client) => {
+                        // Let's gather pending tasks from each client's roadmap checklist
+                        const tasks = client.roadmapChecklist || [];
+                        const uncompleted = tasks.filter(t => !t.completed).slice(0, 2); // Show top 2 uncompleted tasks per client
+                        
+                        // Fallback: if no checklist has been configured/initialized yet, generate simple notice
+                        if (uncompleted.length === 0) {
+                          return [{
+                            id: `notice-${client.id}`,
+                            clientName: client.companyName,
+                            title: `Ejecutar pilar: ${client.marketingStrategy?.pillars?.[0] || 'Alineación de marca'}`,
+                            semaforo: client.semaforo || 'green',
+                            category: 'estrategia',
+                            clientId: client.id
+                          }];
+                        }
+
+                        return uncompleted.map(t => ({
+                          id: `${client.id}-${t.id}`,
+                          clientName: client.companyName,
+                          title: t.title,
+                          semaforo: client.semaforo || 'green',
+                          category: t.category,
+                          clientId: client.id
+                        }));
+                      }).map((alert) => (
+                        <div 
+                          key={alert.id}
+                          onClick={() => handleSelectClient(alert.clientId)}
+                          className="p-3 bg-slate-50/60 border border-slate-150 hover:border-violet-200 hover:bg-slate-50 rounded-2xl transition-all cursor-pointer flex gap-3 items-start group"
+                        >
+                          {/* Left dot represents current partner's semáforo */}
+                          <div className="mt-1 shrink-0 flex flex-col items-center">
+                            <span className={`w-3.5 h-3.5 rounded-full border border-white shadow-2xs ${
+                                alert.semaforo === 'green' ? 'bg-emerald-500' :
+                                alert.semaforo === 'yellow' ? 'bg-amber-400' :
+                                'bg-rose-500'
+                            }`} />
+                          </div>
+
+                          <div className="space-y-1 min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-[9px] font-black text-violet-600 uppercase tracking-wider block truncate max-w-[120px]">
+                                {alert.clientName}
                               </span>
-                              <div className="bg-slate-50 text-slate-500 group-hover:bg-violet-600 group-hover:text-white rounded-full p-2 transition-all border border-slate-200/60 shadow-xs">
-                                <ArrowRight className="w-3.5 h-3.5" />
+                              <span className="text-[8px] font-mono bg-slate-200 text-slate-600 px-1 rounded truncate">
+                                {alert.category}
+                              </span>
+                            </div>
+                            <p className="text-slate-800 text-[11.5px] font-semibold leading-relaxed group-hover:text-violet-600 transition-colors line-clamp-2">
+                              {alert.title}
+                            </p>
+                          </div>
+                          
+                          <ChevronRight className="w-3.5 h-3.5 text-slate-400 self-center group-hover:translate-x-0.5 transition-transform shrink-0" />
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-3 text-[10px] text-slate-400 font-mono text-center flex items-center justify-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" /> Al día ·
+                      <span className="w-2 h-2 rounded-full bg-amber-400" /> En riesgo ·
+                      <span className="w-2 h-2 rounded-full bg-rose-500" /> Retrasado
+                    </div>
+                  </div>
+
+                  {/* Center Column: Directorio de Socios (Grid) */}
+                  <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                      <div className="flex items-center gap-2">
+                        <Building2 className="w-4 h-4 text-violet-600" />
+                        <h4 className="text-xs font-bold uppercase tracking-widest text-slate-500 font-mono">Directorio de Socios</h4>
+                      </div>
+                      <span className="text-xs text-violet-600 bg-violet-50 font-bold px-2.5 py-0.5 rounded-full border border-violet-100 font-mono">
+                        {clients.length} SOCIOS
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-slate-500 leading-normal">
+                      Selecciona un socio para ingresar a su gabinete, auditar métricas detalladas, gestionar guiones, o ver su roadmap de seguimiento operativo:
+                    </p>
+
+                    {/* Highly responsive accounts list */}
+                    <div className="space-y-4 max-h-[460px] overflow-y-auto pr-1" id="welcome-clients-list">
+                      {clients.map((client) => {
+                        // Compute completed checklist tasks percentage to display on card
+                        const checklist = client.roadmapChecklist || [];
+                        const completed = checklist.filter(t => t.completed).length;
+                        const total = checklist.length;
+                        const percent = total > 0 ? Math.round((completed / total) * 100) : 100;
+                        const semStatus = client.semaforo || (percent >= 60 ? 'green' : percent >= 30 ? 'yellow' : 'red');
+
+                        // Beautiful Service Type styles
+                        const isPartnerPrime = client.serviceType === 'partner_prime';
+
+                        return (
+                          <div
+                            key={client.id}
+                            className="w-full bg-white border border-slate-200 rounded-3xl overflow-hidden transition-all duration-500 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-violet-100/40 flex flex-col group relative"
+                          >
+                            {/* Card Premium Header Image / Gradient Cover */}
+                            <div className="h-20 w-full relative overflow-hidden shrink-0">
+                              {/* Overlay background gradient specific to semStatus */}
+                              <div className={`absolute inset-0 bg-gradient-to-br transition-all duration-300 ${
+                                semStatus === 'green' ? 'from-emerald-600/80 to-teal-800/90' :
+                                semStatus === 'yellow' ? 'from-amber-500/80 to-amber-700/90' :
+                                'from-rose-600/80 to-rose-800/90'
+                              } mix-blend-multiply z-10`} />
+                              
+                              {/* Decorative abstract patterns */}
+                              <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_left,rgba(120,119,198,0.2),transparent_50%)] z-10" />
+                              <img 
+                                src={
+                                  client.industry?.toLowerCase().includes('inmobiliaria') || client.industry?.toLowerCase().includes('bienes')
+                                    ? "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=400&auto=format&fit=crop&q=60"
+                                    : client.industry?.toLowerCase().includes('salud') || client.industry?.toLowerCase().includes('medicina') || client.industry?.toLowerCase().includes('clinica')
+                                      ? "https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=400&auto=format&fit=crop&q=60"
+                                      : client.industry?.toLowerCase().includes('software') || client.industry?.toLowerCase().includes('tecnologia')
+                                        ? "https://images.unsplash.com/photo-1518770660439-4636190af475?w=400&auto=format&fit=crop&q=60"
+                                        : "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&auto=format&fit=crop&q=60"
+                                }
+                                alt={client.companyName}
+                                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                referrerPolicy="no-referrer"
+                              />
+
+                              {/* Floating status tag on cover */}
+                              <div className="absolute top-3 right-3 z-20">
+                                <span className={`text-[8px] font-mono font-black px-2.5 py-1 rounded-full border shadow-xs flex items-center gap-1 backdrop-blur-md ${
+                                  semStatus === 'green' ? 'bg-emerald-500/90 text-white border-emerald-400' :
+                                  semStatus === 'yellow' ? 'bg-amber-500/90 text-white border-amber-400' :
+                                  'bg-rose-500/90 text-white border-rose-400'
+                                }`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full bg-white ${
+                                    semStatus === 'green' ? '' : 'animate-ping'
+                                  }`} />
+                                  {semStatus === 'green' ? 'AL DÍA' : semStatus === 'yellow' ? 'EN RIESGO' : 'RETRASADO'}
+                                </span>
+                              </div>
+
+                              {/* Floating industry badge */}
+                              <div className="absolute bottom-3 left-3 z-20">
+                                <span className="text-[8px] font-bold text-white bg-black/40 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/20 uppercase tracking-wider">
+                                  {client.industry || 'Socio'}
+                                </span>
                               </div>
                             </div>
-                          </button>
-                        ))}
+
+                            {/* Card Content Area */}
+                            <div className="p-5 flex-grow flex flex-col justify-between space-y-4">
+                              <div className="space-y-3">
+                                {/* Title and Director Row */}
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className={`text-[8.5px] font-mono font-black px-2 py-0.5 rounded uppercase tracking-wider ${
+                                      isPartnerPrime 
+                                        ? 'bg-violet-50 text-violet-700 border border-violet-150'
+                                        : 'bg-cyan-50 text-cyan-700 border border-cyan-150'
+                                    }`}>
+                                      {isPartnerPrime ? '💎 Partner Prime' : '⚡ Systeme Prime'}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 font-mono font-bold">Mes {client.currentMonth || 1} de 6</span>
+                                  </div>
+
+                                  <h3 
+                                    onClick={() => {
+                                      setSelectedClientId(client.id);
+                                      setViewMode('client');
+                                      setActiveClientTab('dashboard');
+                                      window.location.hash = `#cliente/${client.id}`;
+                                    }}
+                                    className="font-black text-base text-slate-900 font-display tracking-tight hover:text-violet-600 transition-colors cursor-pointer flex items-center justify-between"
+                                  >
+                                    <span className="truncate pr-2">{client.companyName}</span>
+                                    <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-violet-600 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all shrink-0" />
+                                  </h3>
+                                  
+                                  <div className="flex items-center gap-1.5 text-slate-500 text-[11px] font-sans">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-violet-600" />
+                                    <span>Director: <strong className="text-slate-800 font-bold">{client.ownerName}</strong></span>
+                                  </div>
+                                </div>
+
+                                {/* Executive Premium Bento-Grid Cells for KPI strip */}
+                                <div className="grid grid-cols-3 gap-2 bg-slate-50/70 border border-slate-150 rounded-2xl p-2.5 transition-all group-hover:bg-violet-50/20 group-hover:border-violet-100">
+                                  <div className="text-center p-1">
+                                    <span className="text-[7.5px] font-mono text-slate-400 block uppercase font-bold tracking-wider">ROAS REAL</span>
+                                    <span className="text-xs font-mono font-black text-emerald-600 block mt-0.5">
+                                      {client.kpis?.roas?.value || '0.0x'}
+                                    </span>
+                                  </div>
+                                  <div className="text-center p-1 border-x border-slate-150/60">
+                                    <span className="text-[7.5px] font-mono text-slate-400 block uppercase font-bold tracking-wider">LEADS</span>
+                                    <span className="text-xs font-mono font-black text-slate-900 block mt-0.5">
+                                      {client.kpis?.leads?.value || '0'}
+                                    </span>
+                                  </div>
+                                  <div className="text-center p-1">
+                                    <span className="text-[7.5px] font-mono text-slate-400 block uppercase font-bold tracking-wider">VENTAS</span>
+                                    <span className="text-xs font-mono font-black text-violet-600 block mt-0.5">
+                                      {client.kpis?.ventas?.value || '$0'}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Task operational progress bar inside card */}
+                              <div className="space-y-3 pt-1">
+                                <div className="space-y-1.5">
+                                  <div className="flex justify-between items-center text-[9px] text-slate-405 font-mono font-bold">
+                                    <span>PROGRESO OPERATIVO</span>
+                                    <span className="text-slate-700 font-extrabold">{percent}% ({completed}/{total})</span>
+                                  </div>
+                                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-150/20 shadow-inner">
+                                    <div 
+                                      className={`h-full rounded-full transition-all duration-700 relative overflow-hidden ${
+                                        semStatus === 'green' ? 'bg-gradient-to-r from-emerald-500 to-teal-500' :
+                                        semStatus === 'yellow' ? 'bg-gradient-to-r from-amber-400 to-orange-400' :
+                                        'bg-gradient-to-r from-rose-500 to-red-500'
+                                      }`}
+                                      style={{ width: `${percent}%` }}
+                                    >
+                                      <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.15)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.15)_50%,rgba(255,255,255,0.15)_75%,transparent_75%,transparent)] bg-[length:8px_8px] animate-pulse" />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Quick-access Action Buttons with stunning, premium styles */}
+                                <div className="flex gap-2.5 border-t border-slate-100 pt-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedClientId(client.id);
+                                      setViewMode('client');
+                                      setActiveClientTab('dashboard');
+                                      window.location.hash = `#cliente/${client.id}`;
+                                    }}
+                                    className="flex-1 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-700 font-extrabold py-2 px-2 rounded-xl text-[9px] font-mono transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer shadow-3xs hover:shadow-2xs active:scale-95"
+                                  >
+                                    <Building2 className="w-3.5 h-3.5 text-violet-500" />
+                                    <span>GABINETE</span>
+                                  </button>
+                                  
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedClientId(client.id);
+                                      setViewMode('client');
+                                      setActiveClientTab('strategy');
+                                      window.location.hash = `#cliente/${client.id}`;
+                                    }}
+                                    className="flex-1 bg-violet-600 hover:bg-violet-700 text-white font-extrabold py-2 px-2 rounded-xl text-[9px] font-mono transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-violet-600/10 hover:shadow-lg hover:shadow-violet-600/20 active:scale-95"
+                                  >
+                                    <Compass className="w-3.5 h-3.5 text-emerald-300" />
+                                    <span>ESTRATEGIA</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Right Column: Últimos Hitos en Portafolio (Bitácora Global Integration) */}
+                  <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                      <div className="flex items-center gap-2">
+                        <Award className="w-4 h-4 text-violet-600" />
+                        <h4 className="text-xs font-bold uppercase tracking-widest text-slate-500 font-mono">Últimos Hitos de Socios</h4>
                       </div>
+                      <span className="text-[8px] font-mono font-bold bg-violet-50 text-violet-700 px-2 py-0.5 rounded border border-violet-100">
+                        GLOBAL
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-slate-500 font-sans">
+                      Historial consolidado de las últimas acciones operativas, lanzamientos de pauta y optimizaciones tácticas:
+                    </p>
+
+                    <div className="relative pl-5 space-y-4 before:absolute before:left-[9px] before:top-2 before:bottom-2 before:w-[1.5px] before:bg-slate-100 max-h-[360px] overflow-y-auto pr-1">
+                      {sortedGlobalLogs.length > 0 ? (
+                        sortedGlobalLogs.map(({ log, companyName, clientId }) => (
+                          <div key={log.id} className="relative group/timeline cursor-pointer" onClick={() => handleSelectClient(clientId)}>
+                            <div className="absolute -left-[20px] top-0.5 bg-white border border-slate-200 rounded-full p-0.5 group-hover/timeline:border-violet-500 transition-all shadow-3xs z-10">
+                              {getGlobalCategoryIcon(log.category)}
+                            </div>
+
+                            <div className="flex flex-col gap-0.5 pl-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[8px] font-mono font-bold text-slate-400">
+                                  {log.date}
+                                </span>
+                                <span className="text-[8px] font-sans font-bold text-violet-600 bg-violet-50 px-1.5 py-0.2 rounded border border-violet-100 truncate max-w-[80px]">
+                                  {companyName}
+                                </span>
+                              </div>
+                              <h5 className="text-[11px] font-bold text-slate-800 leading-tight group-hover/timeline:text-violet-600 transition-colors">
+                                {log.title}
+                              </h5>
+                              <p className="text-[10px] text-slate-500 leading-normal line-clamp-2">
+                                {log.description}
+                              </p>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center text-slate-400 text-xs py-10 font-mono">No hay hitos ingresados en el portafolio todavía.</div>
+                      )}
                     </div>
                   </div>
 
@@ -919,6 +1240,9 @@ export default function App() {
                   onGoToAdmin={handleAdminModeLink}
                   consultantName={config.consultantName}
                   consultantAgency={config.consultantAgency}
+                  activeTab={activeClientTab}
+                  setActiveTab={setActiveClientTab}
+                  onUpdateClient={handleUpdateSingleClient}
                 />
               </motion.div>
             )}
@@ -941,6 +1265,9 @@ export default function App() {
                   onUpdateConfig={setConfig}
                   onSupabaseConfigChange={handleSupabaseConfigChange}
                   onAuthChange={setIsAdminAuthenticated}
+                  isAdminAuthenticated={isAdminAuthenticated}
+                  activeTab={activeAdminTab}
+                  onTabChange={setActiveAdminTab}
                   onClientLogin={(clientId) => {
                     setSelectedClientId(clientId);
                     setIsClientViewOnly(true);

@@ -841,45 +841,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     });
     
     try {
-      let data;
-      if (imageEngine === 'supabase_edge') {
-        if (!sUrl || !sKey) {
-          throw new Error("No has conectado Supabase en tu panel de configuración aún. Por favor, conéctalo en la pestaña 'Ajustes de Supabase' para poder consumir Edge Functions.");
-        }
-        const cleanUrl = sUrl.replace(/\/$/, "");
-        const edgeUrl = `${cleanUrl}/functions/v1/generate-image`;
-        console.log(`Llamando directamente a la Edge Function de Supabase: ${edgeUrl}`);
-        
-        const res = await fetch(edgeUrl, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${sKey}`,
-            'apikey': sKey
-          },
-          body: JSON.stringify({ 
-            prompt: promptText, 
-            title: titleText, 
-            category: catText 
-          })
-        });
-        
-        data = await res.json();
-      } else {
-        const res = await fetch('/api/generate-creative-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            prompt: promptText, 
-            title: titleText, 
-            category: catText, 
-            engine: imageEngine,
-            supabaseUrl: sUrl,
-            supabaseAnonKey: sKey
-          })
-        });
-        data = await res.json();
-      }
+      const res = await fetch('/api/generate-creative-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          prompt: promptText, 
+          title: titleText, 
+          category: catText, 
+          supabaseUrl: sUrl,
+          supabaseAnonKey: sKey
+        })
+      });
+      const data = await res.json();
 
       if (data && (data.success || data.imageUrl)) {
         const imgUrl = data.imageUrl;
@@ -3566,7 +3539,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 {generatingCreativeId === creative.id && (
                                   <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center gap-2 p-2 text-center text-white backdrop-blur-xs z-10">
                                     <span className="w-5 h-5 rounded-full border-2 border-violet-500 border-t-transparent animate-spin"></span>
-                                    <span className="text-[8px] font-mono font-black animate-pulse uppercase">CREANDO CON {imageEngine === 'supabase_edge' ? 'SUPABASE EDGE' : imageEngine === 'openai' ? 'CHATGPT' : 'GEMINI'}...</span>
+                                    <span className="text-[8px] font-mono font-black animate-pulse uppercase">GENERANDO CREATIVO CON IA...</span>
                                   </div>
                                 )}
                                 <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/40 to-transparent" />
@@ -4338,58 +4311,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <Layers className="w-4 h-4 text-violet-600" />
                             <h5 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-800 dark:text-white">Studio Creativo Integrado · Plantillas Gráficas ({selectedClient.marketingStrategy.creativeImages?.length || 0})</h5>
                           </div>
-
-                          {/* Selector de Motor de IA */}
-                          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-zinc-950 p-1 rounded-xl shrink-0 self-end sm:self-auto">
-                            <span className="text-[9px] font-mono font-bold text-slate-500 px-1 font-mono">Motor IA:</span>
-                            <button
-                              type="button"
-                              onClick={() => setImageEngine('gemini')}
-                              className={`text-[9px] font-bold px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${imageEngine === 'gemini' ? 'bg-violet-600 text-white shadow-3xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
-                            >
-                              ♊ Gemini
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setImageEngine('openai')}
-                              className={`text-[9px] font-bold px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${imageEngine === 'openai' ? 'bg-violet-600 text-white shadow-3xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
-                            >
-                              🤖 ChatGPT (Local)
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setImageEngine('supabase_edge')}
-                              className={`text-[9px] font-bold px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${imageEngine === 'supabase_edge' ? 'bg-violet-600 text-white shadow-3xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
-                              title="Ejecuta la función Edge en tu Supabase"
-                            >
-                              ⚡ Supabase Edge
-                            </button>
-                          </div>
                         </div>
-
-                        {imageEngine === 'supabase_edge' && (
-                          <div className="bg-violet-50/50 dark:bg-violet-950/10 border border-violet-100 dark:border-violet-900/30 rounded-xl p-3.5 space-y-2 text-xs font-sans">
-                            <div className="flex items-center gap-2 text-violet-700 dark:text-violet-300 font-bold">
-                              <span className="flex h-2 w-2 relative">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500"></span>
-                              </span>
-                              <span>Motor Seguro: Supabase Edge Function Activa (Recomendado)</span>
-                            </div>
-                            <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
-                              La aplicación se comunicará directamente con tu propia <strong>Edge Function</strong> de Supabase en <code className="bg-slate-100 dark:bg-zinc-800 px-1 rounded font-mono text-[10px]">{supabaseUrl || getSupabaseCredentials()?.url || 'tu-proyecto'}</code> para generar imágenes con DALL-E 3 de forma 100% segura. El API Key no pasa por los servidores de la app.
-                            </p>
-                            <div className="bg-slate-900 text-slate-300 dark:bg-zinc-950 rounded-lg p-2.5 font-mono text-[10px] leading-normal border border-zinc-800">
-                              <span className="text-slate-500"># 1. Registra tu API Key de OpenAI en los secrets de tu Supabase:</span><br />
-                              <span className="text-violet-400 font-bold">supabase secrets set OPENAI_API_KEY=sk-proj-...</span><br />
-                              <span className="text-slate-500 mt-1 block"># 2. Despliega la función usando la CLI de Supabase:</span>
-                              <span className="text-violet-400 font-bold">supabase functions deploy generate-image --no-verify-jwt</span>
-                            </div>
-                            <p className="text-[10px] text-slate-400">
-                              💡 El código listo de la función está disponible en este workspace bajo la ruta <code className="underline font-mono">/supabase/functions/generate-image/index.ts</code> para que solo tengas que copiarlo y desplegarlo.
-                            </p>
-                          </div>
-                        )}
 
                         {/* Éxito / Feedback de Generación */}
                         {imageGenSuccessMessage && (
@@ -4412,7 +4334,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 {generatingCreativeId === img.id && (
                                   <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center gap-2 p-2 text-center text-white backdrop-blur-xs">
                                     <span className="w-5 h-5 rounded-full border-2 border-violet-500 border-t-transparent animate-spin"></span>
-                                    <span className="text-[8px] font-mono font-bold animate-pulse uppercase">CREANDO CON {imageEngine === 'supabase_edge' ? 'SUPABASE EDGE' : imageEngine === 'openai' ? 'CHATGPT' : 'GEMINI'}...</span>
+                                    <span className="text-[8px] font-mono font-bold animate-pulse uppercase">GENERANDO CREATIVO CON IA...</span>
                                   </div>
                                 )}
                                 <span className="absolute top-2 left-2 text-[9px] uppercase tracking-wider font-bold bg-slate-950/70 text-white px-2 py-0.5 rounded backdrop-blur-xs font-mono">

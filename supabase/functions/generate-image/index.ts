@@ -38,8 +38,8 @@ serve(async (req) => {
     }
 
     console.log(`Generando imagen con OpenAI DALL-E 3 en Supabase Edge para el prompt: "${prompt}"`);
-
-    const response = await fetch("https://api.openai.com/v1/images/generations", {
+    
+    let response = await fetch("https://api.openai.com/v1/images/generations", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -53,23 +53,60 @@ serve(async (req) => {
       })
     });
 
+    let data;
+    let usedModel = "dall-e-3";
+
     if (!response.ok) {
-      const errData = await response.json();
-      throw new Error(errData?.error?.message || `Error HTTP de OpenAI: ${response.status}`);
+      const errData = await response.json().catch(() => ({}));
+      const errMsg = errData?.error?.message || "";
+      console.warn("DALL-E 3 falló con error:", errMsg);
+      
+      // Si el error dice que el modelo dall-e-3 no existe, o no tiene acceso, intentamos con dall-e-2 de respaldo
+      if (
+        errMsg.toLowerCase().includes("dall-e-3") || 
+        errMsg.toLowerCase().includes("does not exist") || 
+        errMsg.toLowerCase().includes("not_found") ||
+        errMsg.toLowerCase().includes("access")
+      ) {
+        console.log("Intentando fallback a dall-e-2...");
+        usedModel = "dall-e-2";
+        response = await fetch("https://api.openai.com/v1/images/generations", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${openAiApiKey}`
+          },
+          body: JSON.stringify({
+            model: "dall-e-2",
+            prompt: prompt,
+            n: 1,
+            size: "1024x1024"
+          })
+        });
+
+        if (!response.ok) {
+          const errData2 = await response.json().catch(() => ({}));
+          throw new Error(errData2?.error?.message || `Error HTTP de OpenAI en DALL-E 2: ${response.status}`);
+        }
+        data = await response.json();
+      } else {
+        throw new Error(errMsg || `Error HTTP de OpenAI: ${response.status}`);
+      }
+    } else {
+      data = await response.json();
     }
 
-    const data = await response.json();
     const imageUrl = data?.data?.[0]?.url || '';
 
     if (!imageUrl) {
-      throw new Error('OpenAI no retornó ninguna URL de imagen.');
+      throw new Error(`OpenAI no retornó ninguna URL de imagen para el modelo ${usedModel}.`);
     }
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         imageUrl, 
-        statusMessage: '¡Imagen generada de manera exitosa y 100% segura usando tu Supabase Edge Function con DALL-E 3!' 
+        statusMessage: `¡Imagen generada de manera exitosa usando tu Supabase Edge Function con ${usedModel.toUpperCase()}!` 
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )

@@ -458,7 +458,7 @@ RESPONDE ÚNICAMENTE CON EL OBJETO JSON LIMPIO. NO COMENTARIOS, NO FORMATO MD AD
 
 // 2. ENDPOINT: Generate image for the creative studio
 app.post('/api/generate-creative-image', async (req, res) => {
-  const { prompt, category, title, engine, supabaseUrl, supabaseAnonKey } = req.body;
+  const { prompt, category, title, supabaseUrl, supabaseAnonKey } = req.body;
   if (!prompt) {
     return res.status(400).json({ error: 'Falta el prompt de generación.' });
   }
@@ -468,8 +468,8 @@ app.post('/api/generate-creative-image', async (req, res) => {
   let statusMessage = '';
   let openaiApiKey = process.env.OPENAI_API_KEY || '';
 
-  // Retrieve OpenAI API Key dynamically from Supabase on the fly if credentials are provided
-  if (supabaseUrl && supabaseAnonKey) {
+  // 1. Try to fetch from Supabase database table "app_settings" if credentials are provided and we don't have a direct key
+  if (!openaiApiKey && supabaseUrl && supabaseAnonKey) {
     try {
       console.log(`Buscando OpenAI API Key en la tabla "app_settings" de Supabase (${supabaseUrl})...`);
       const tempSupabase = createClient(supabaseUrl, supabaseAnonKey);
@@ -480,12 +480,10 @@ app.post('/api/generate-creative-image', async (req, res) => {
         .maybeSingle();
 
       if (error) {
-        console.warn("La tabla 'app_settings' no se pudo consultar (puede que aún no esté creada):", error.message);
+        console.warn("La tabla 'app_settings' no se pudo consultar o no existe aún:", error.message);
       } else if (data && data.value) {
-        console.log("¡OpenAI API Key recuperada exitosamente de Supabase!");
+        console.log("¡OpenAI API Key recuperada exitosamente de la base de datos de Supabase!");
         openaiApiKey = data.value.trim();
-      } else {
-        console.log("No se encontró la clave 'openai_api_key' en la tabla 'app_settings' de tu Supabase.");
       }
     } catch (dbErr: any) {
       console.error("Fallo al consultar la tabla app_settings en Supabase:", dbErr?.message || dbErr);
@@ -493,9 +491,9 @@ app.post('/api/generate-creative-image', async (req, res) => {
   }
 
   try {
-    // 1. OpenAI DALL-E (ChatGPT) Generation
-    if ((engine === 'openai' || !engine) && openaiApiKey) {
-      console.log(`Generating image with OpenAI DALL-E 3 for prompt: "${prompt}"`);
+    // 2. Try Method A: Direct OpenAI API call (if key is found on Vercel environment or database table)
+    if (openaiApiKey) {
+      console.log(`Intentando generación directa de imagen con OpenAI DALL-E 3...`);
       try {
         const response = await fetch("https://api.openai.com/v1/images/generations", {
           method: "POST",
@@ -511,27 +509,64 @@ app.post('/api/generate-creative-image', async (req, res) => {
           })
         });
 
-        if (!response.ok) {
-          const errData = await response.json();
-          throw new Error(errData?.error?.message || `HTTP ${response.status}`);
+        if (response.ok) {
+          const data = await response.json();
+          imageUrl = data?.data?.[0]?.url || '';
+          if (imageUrl) {
+            generatorMode = 'openai_dalle';
+            statusMessage = '¡Imagen creada con éxito usando ChatGPT DALL-E 3 directamente!';
+            console.log("¡Imagen generada con éxito con DALL-E 3 directo!");
+          }
+        } else {
+          const errData = await response.json().catch(() => ({}));
+          console.error("OpenAI Direct API returned error status:", response.status, errData);
         }
-
-        const data = await response.json();
-        imageUrl = data?.data?.[0]?.url || '';
-        generatorMode = 'openai_dalle';
-        statusMessage = 'Imagen creada con éxito usando ChatGPT DALL-E 3.';
       } catch (err: any) {
-        console.error("OpenAI DALL-E generation failed, falling back to Gemini:", err);
-        statusMessage = `Fallo OpenAI (${err?.message || err}). Buscando motor secundario...`;
+        console.error("Fallo la llamada directa a OpenAI DALL-E:", err);
       }
-    } else if (engine === 'openai' && !openaiApiKey) {
-      statusMessage = 'No se configuró ninguna OpenAI API Key en Supabase ni en el servidor. Buscando motor secundario...';
-      console.log(statusMessage);
     }
 
-    // 2. Gemini Image Generation
+    // 3. Try Method B: Call Supabase Edge Function directly from the backend (if key is in Supabase Secrets)
+    if (!imageUrl && supabaseUrl && supabaseAnonKey) {
+      const cleanUrl = supabaseUrl.replace(/\/$/, "");
+      const edgeUrl = `${cleanUrl}/functions/v1/generate-image`;
+      console.log(`Intentando llamar de fondo a la Edge Function de Supabase: ${edgeUrl}`);
+      
+      try {
+        const response = await fetch(edgeUrl, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseAnonKey}`,
+            'apikey': supabaseAnonKey
+          },
+          body: JSON.stringify({ 
+            prompt: prompt, 
+            title: title || 'Creativo de Marketing', 
+            category: category || 'social_post' 
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          imageUrl = data?.imageUrl || '';
+          if (imageUrl) {
+            generatorMode = 'supabase_edge';
+            statusMessage = '¡Imagen generada con éxito usando tu Supabase Edge Function!';
+            console.log("¡Imagen generada exitosamente vía Supabase Edge Function!");
+          }
+        } else {
+          const errText = await response.text().catch(() => "");
+          console.warn(`La Edge Function de Supabase retornó código de estado ${response.status}: ${errText}`);
+        }
+      } catch (err: any) {
+        console.error("Error al conectar de fondo con la Edge Function de Supabase:", err);
+      }
+    }
+
+    // 4. Try Method C: Fallback to Gemini Image Generation (free background fallback)
     if (!imageUrl && ai) {
-      console.log(`Generating image with Gemini for prompt: "${prompt}"`);
+      console.log(`Ninguna OpenAI key activa. Intentando generar con Gemini como alternativa gratuita...`);
       try {
         const response = await ai.models.generateContent({
           model: 'gemini-3.1-flash-lite-image',
@@ -551,32 +586,25 @@ app.post('/api/generate-creative-image', async (req, res) => {
               const base64EncodeString = part.inlineData.data;
               imageUrl = `data:image/png;base64,${base64EncodeString}`;
               generatorMode = 'gemini_image';
-              statusMessage = 'Imagen creada con éxito usando Gemini AI.';
+              statusMessage = 'Imagen creada usando el motor Gemini AI alternativo de respaldo.';
+              console.log("¡Imagen de respaldo generada exitosamente con Gemini AI!");
               break;
             }
           }
         }
-        if (!imageUrl) {
-          throw new Error("El modelo Gemini no retornó datos binarios de imagen.");
-        }
       } catch (err: any) {
-        console.error("Gemini image generation failed:", err);
-        statusMessage = `Fallo Gemini (${err?.message || err}). Usando banco de recursos alternativos...`;
+        console.error("La generación de imagen alternativa con Gemini falló:", err);
       }
     }
 
-    // 3. Fallback to High-Quality Unsplash Query
+    // 5. Try Method D: Fallback to High-Quality Unsplash Query
     if (!imageUrl) {
-      console.log(`Using Unsplash high-quality fallback for prompt: "${prompt}"`);
+      console.log(`Usando imagen representativa de Unsplash de alta calidad...`);
       const queryTerm = encodeURIComponent(title || category || 'business');
       const randomSeed = Math.floor(Math.random() * 100);
       imageUrl = `https://images.unsplash.com/featured/?${queryTerm}&sig=${randomSeed}`;
       generatorMode = 'unsplash_fallback';
-      if (!statusMessage) {
-        statusMessage = 'Imagen de recurso premium seleccionada del banco Unsplash.';
-      } else {
-        statusMessage += ' Mostrando imagen de recurso Unsplash de alta calidad.';
-      }
+      statusMessage = 'Mostrando una imagen representativa premium de alta definición de Unsplash.';
     }
 
     return res.json({
@@ -596,6 +624,7 @@ app.post('/api/generate-creative-image', async (req, res) => {
       }
     });
   } catch (err: any) {
+    console.error("Error crítico en el backend de generación de imágenes:", err);
     res.status(500).json({ error: err?.message || 'Error en el generador de imágenes.' });
   }
 });
@@ -698,4 +727,8 @@ const startServer = async () => {
   });
 };
 
-startServer();
+if (process.env.VERCEL !== '1') {
+  startServer();
+}
+
+export default app;
